@@ -1157,6 +1157,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
 .status-message.visible { display: block; }
 .status-message.success { border-color: var(--green); color: var(--green); }
 .status-message.error { border-color: var(--red); color: var(--red); }
+.status-message.info { border-color: #60a5fa; color: #60a5fa; }
 
 /* scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -3488,22 +3489,39 @@ function renderSlide(ctx, canvas, data) {
   // Per il rendering: convertiamo bottom in baseline (per Marcin il descender è ~20% di fontSize)
   var lastLineBaselineY = lastLineBottomY - fontSize * 0.05; // piccolo aggiustamento
   
-  // 4. SFUMATURA NERA SOTTO IL TESTO (adattiva)
-  // Calcola l'area occupata dal testo
-  var textTopY = lastLineBaselineY - (lines.length - 1) * lineH - fontSize * 0.85; // top primo carattere
-  var textBottomY = lastLineBottomY + 30; // un po' sotto l'ultima riga
-  
-  // Gradient verticale: da trasparente in alto a nero scuro in basso
-  // Si estende dal textTopY (con padding sopra) fino al bottom canvas
-  var gradStartY = textTopY - 120; // 120px sopra il testo per fade-in più graduale e visibile
+  // 4. SFUMATURA NERA ADATTIVA — campiona luminosità dietro al testo
+  var textTopY = lastLineBaselineY - (lines.length - 1) * lineH - fontSize * 0.85;
+  var textBottomY = lastLineBottomY + 30;
+  var gradStartY = textTopY - 120;
   var gradEndY = H;
-  
+
+  // Campiona luminosità media area testo
+  var avgBrightSlide = 128;
+  if (data.foto) {
+    try {
+      var sampleTopS = Math.max(0, Math.round(textTopY - 60));
+      var sampleHtS = Math.max(1, Math.min(H - sampleTopS, Math.round(textBottomY - textTopY + 60)));
+      var imgDataS = ctx.getImageData(0, sampleTopS, W, sampleHtS).data;
+      var sumS = 0, countS = 0;
+      for (var si = 0; si < imgDataS.length; si += 16) {
+        sumS += imgDataS[si]*0.299 + imgDataS[si+1]*0.587 + imgDataS[si+2]*0.114;
+        countS++;
+      }
+      if (countS > 0) avgBrightSlide = sumS / countS;
+    } catch(e) {}
+  }
+  // alpha adattiva: sfondo chiaro → più scuro, sfondo scuro → meno
+  var alphaSlide = 0.45 + (avgBrightSlide - 30) / 190 * 0.45;
+  if (alphaSlide < 0.35) alphaSlide = 0.35;
+  if (alphaSlide > 0.92) alphaSlide = 0.92;
+
   var grad = ctx.createLinearGradient(0, gradStartY, 0, gradEndY);
-  grad.addColorStop(0, "rgba(0,0,0,0)");
-  grad.addColorStop(0.2, "rgba(0,0,0,0.45)");
-  grad.addColorStop(0.5, "rgba(0,0,0,0.75)");
-  grad.addColorStop(1, "rgba(0,0,0,0.95)");
-  
+  grad.addColorStop(0,   "rgba(0,0,0,0)");
+  grad.addColorStop(0.15, "rgba(0,0,0," + (alphaSlide * 0.25).toFixed(3) + ")");
+  grad.addColorStop(0.35, "rgba(0,0,0," + (alphaSlide * 0.60).toFixed(3) + ")");
+  grad.addColorStop(0.55, "rgba(0,0,0," + (alphaSlide * 0.85).toFixed(3) + ")");
+  grad.addColorStop(1,   "rgba(0,0,0," + alphaSlide.toFixed(3) + ")");
+
   ctx.fillStyle = grad;
   ctx.fillRect(0, gradStartY, W, gradEndY - gradStartY);
   
@@ -3759,23 +3777,44 @@ function renderCitazione(ctx, canvas, data) {
   }
   var _preTextTopY = _preFirstBaselineY - fontSize * 0.85;
   var _preTextBottomY = _preFirstBaselineY + (_preLines.length - 1) * lineH + fontSize * 0.2;
-  
+
+  // Campiona luminosità dietro al testo
+  var avgBrightCit = 128;
+  if (data.foto) {
+    try {
+      var _sTop = Math.max(0, Math.round(_preTextTopY - 40));
+      var _sH = Math.max(1, Math.min(H - _sTop, Math.round(_preTextBottomY - _preTextTopY + 80)));
+      var _imgD = ctx.getImageData(0, _sTop, W, _sH).data;
+      var _sum = 0, _cnt = 0;
+      for (var _i = 0; _i < _imgD.length; _i += 16) {
+        _sum += _imgD[_i]*0.299 + _imgD[_i+1]*0.587 + _imgD[_i+2]*0.114;
+        _cnt++;
+      }
+      if (_cnt > 0) avgBrightCit = _sum / _cnt;
+    } catch(e) {}
+  }
+  var _alphaCit = 0.45 + (avgBrightCit - 30) / 190 * 0.45;
+  if (_alphaCit < 0.35) _alphaCit = 0.35;
+  if (_alphaCit > 0.92) _alphaCit = 0.92;
+
   if (textPos === "bottom") {
     var _gradStartY = _preTextTopY - 120;
     var _grad = ctx.createLinearGradient(0, _gradStartY, 0, H);
-    _grad.addColorStop(0, "rgba(0,0,0,0)");
-    _grad.addColorStop(0.2, "rgba(0,0,0,0.45)");
-    _grad.addColorStop(0.5, "rgba(0,0,0,0.75)");
-    _grad.addColorStop(1, "rgba(0,0,0,0.95)");
+    _grad.addColorStop(0,    "rgba(0,0,0,0)");
+    _grad.addColorStop(0.15, "rgba(0,0,0," + (_alphaCit * 0.25).toFixed(3) + ")");
+    _grad.addColorStop(0.35, "rgba(0,0,0," + (_alphaCit * 0.60).toFixed(3) + ")");
+    _grad.addColorStop(0.55, "rgba(0,0,0," + (_alphaCit * 0.85).toFixed(3) + ")");
+    _grad.addColorStop(1,    "rgba(0,0,0," + _alphaCit.toFixed(3) + ")");
     ctx.fillStyle = _grad;
     ctx.fillRect(0, _gradStartY, W, H - _gradStartY);
   } else {
     var _gradEndY2 = _preTextBottomY + 120;
     var _grad2 = ctx.createLinearGradient(0, 0, 0, _gradEndY2);
-    _grad2.addColorStop(0, "rgba(0,0,0,0.95)");
-    _grad2.addColorStop(0.5, "rgba(0,0,0,0.75)");
-    _grad2.addColorStop(0.8, "rgba(0,0,0,0.45)");
-    _grad2.addColorStop(1, "rgba(0,0,0,0)");
+    _grad2.addColorStop(0,    "rgba(0,0,0," + _alphaCit.toFixed(3) + ")");
+    _grad2.addColorStop(0.45, "rgba(0,0,0," + (_alphaCit * 0.85).toFixed(3) + ")");
+    _grad2.addColorStop(0.65, "rgba(0,0,0," + (_alphaCit * 0.60).toFixed(3) + ")");
+    _grad2.addColorStop(0.85, "rgba(0,0,0," + (_alphaCit * 0.25).toFixed(3) + ")");
+    _grad2.addColorStop(1,    "rgba(0,0,0,0)");
     ctx.fillStyle = _grad2;
     ctx.fillRect(0, 0, W, _gradEndY2);
   }
@@ -4992,7 +5031,13 @@ async function exportAll() {
     return;
   }
   
-  var hasZip = (typeof JSZip !== "undefined") && (typeof saveAs !== "undefined");
+  var isMobile = window.innerWidth <= 768 || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  var hasZip = !isMobile && (typeof JSZip !== "undefined") && (typeof saveAs !== "undefined");
+
+  if (isMobile) {
+    showStatus("Su iPhone le immagini vengono scaricate nei File. Aprile e salvale nella Foto!", "info");
+    await new Promise(function(r) { setTimeout(r, 1500); });
+  }
   
   showLoading("Esportazione in corso…");
   document.getElementById("btnExport").disabled = true;
