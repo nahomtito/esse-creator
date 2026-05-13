@@ -4972,7 +4972,7 @@ async function canvasToDataURL(canvas) {
   });
 }
 
-// === FULLSCREEN PREVIEW (solo mobile) — drag modifica immagine reale ===
+// === FULLSCREEN PREVIEW (solo mobile) ===
 var _fpOpen = false;
 var _fpDragging = false;
 var _fpPinching = false;
@@ -4984,154 +4984,185 @@ var _fpActiveCellIdx = -1;
 var _fpDraggingCerchio = false;
 
 function openFullPreview() {
-  var overlay = document.getElementById("fullPreviewOverlay");
-  if (!overlay) return;
   _fpOpen = true;
-  overlay.style.display = "flex";
-  document.body.style.overflow = "hidden";
   _fpRender();
+  document.getElementById("fullPreviewOverlay").style.display = "flex";
+  document.body.style.overflow = "hidden";
 }
 
 function _fpRender() {
-  if (!_fpOpen) return;
   var src = document.getElementById("mainCanvas");
   var fp = document.getElementById("fullPreviewCanvas");
   if (!src || !fp) return;
-  // Adatta dimensioni al viewport
+  // Canvas fullscreen = stessa risoluzione del canvas reale (1080×1440)
+  // ma visualizzato più grande
+  fp.width = src.width;
+  fp.height = src.height;
   var vw = window.innerWidth;
   var vh = window.innerHeight - 80;
   var ratio = Math.min(vw / src.width, vh / src.height);
-  var dw = Math.round(src.width * ratio);
-  var dh = Math.round(src.height * ratio);
-  fp.width = dw;
-  fp.height = dh;
-  fp.style.width = dw + "px";
-  fp.style.height = dh + "px";
-  // Disegna il canvas principale scalato
-  fp.getContext("2d").drawImage(src, 0, 0, dw, dh);
+  fp.style.width  = Math.round(src.width  * ratio) + "px";
+  fp.style.height = Math.round(src.height * ratio) + "px";
+  fp.getContext("2d").drawImage(src, 0, 0);
 }
 
 function closeFullPreview() {
   _fpOpen = false;
-  var overlay = document.getElementById("fullPreviewOverlay");
-  if (overlay) overlay.style.display = "none";
+  document.getElementById("fullPreviewOverlay").style.display = "none";
   document.body.style.overflow = "";
 }
 
-// Touch events sul canvas fullscreen — modificano l'immagine reale
-(function() {
-  document.addEventListener("DOMContentLoaded", function() {
-    var fp = document.getElementById("fullPreviewCanvas");
-    if (!fp) return;
+// Converte coordinate CSS del fullPreviewCanvas → coordinate canvas reale (1080×1440)
+function _fpCSStoCanvas(cssX, cssY) {
+  var fp = document.getElementById("fullPreviewCanvas");
+  var rect = fp.getBoundingClientRect();
+  return {
+    x: (cssX - rect.left) / rect.width  * fp.width,
+    y: (cssY - rect.top)  / rect.height * fp.height
+  };
+}
 
-    fp.addEventListener("touchstart", function(e) {
-      e.preventDefault();
-      var bRect = fp.getBoundingClientRect();
-      // Scala da coordinate CSS fp → coordinate canvas reale
-      var src = document.getElementById("mainCanvas");
-      var scaleX = src.width / fp.width;
-      var scaleY = src.height / fp.height;
+// Determina cosa si sta draggando (cella griglia o cerchio) alle coordinate CSS del fp
+function _fpHitTest(cssX, cssY) {
+  var fp = document.getElementById("fullPreviewCanvas");
+  var rect = fp.getBoundingClientRect();
+  var localCssX = cssX - rect.left;
+  var localCssY = cssY - rect.top;
 
-      if (e.touches.length === 1) {
-        var lx = (e.touches[0].clientX - bRect.left) * scaleX;
-        var ly = (e.touches[0].clientY - bRect.top) * scaleY;
-        // Controlla cerchio
-        if (isPointInCerchio(e.touches[0].clientX - bRect.left, e.touches[0].clientY - bRect.top)) {
-          _fpDraggingCerchio = true;
-          _fpActiveCellIdx = -99;
-        } else {
-          _fpDraggingCerchio = false;
-          _fpActiveCellIdx = getCellIdxAtPoint(lx / scaleX, ly / scaleY);
-          if (!getImgForCell(_fpActiveCellIdx)) _fpActiveCellIdx = -1;
-          if (!getImgForCell(_fpActiveCellIdx)) return;
+  // isPointInCerchio usa le coordinate CSS del canvasEl —
+  // qui siamo nel fp, quindi ricalcolo usando le coordinate canvas reali
+  var cc = _fpCSStoCanvas(cssX, cssY);
+  var c = getCerchioCenter(); // ritorna centro in coordinate canvas reale
+  if (c) {
+    var dist = Math.sqrt((cc.x - c.x)*(cc.x - c.x) + (cc.y - c.y)*(cc.y - c.y));
+    if (dist <= c.r) return { cerchio: true };
+  }
+
+  // Hit-test celle griglia
+  var container = getCurrentMultiFotosContainer();
+  var fotosExtra = (container && container.fotosExtra) || [];
+  var mainImg = getCurrentImg();
+  var n = 0;
+  if (mainImg) n++;
+  fotosExtra.forEach(function(f) { if (f && f.img) n++; });
+
+  if (n <= 1) return { cellIdx: -1 };
+
+  var rects = computeGridRects(n, 0, 0, 1080, 1440, 8);
+  for (var i = 0; i < rects.length; i++) {
+    var r = rects[i];
+    if (cc.x >= r.x && cc.x <= r.x + r.w && cc.y >= r.y && cc.y <= r.y + r.h) {
+      return { cellIdx: i - 1 };
+    }
+  }
+  return { cellIdx: -1 };
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  var fp = document.getElementById("fullPreviewCanvas");
+  if (!fp) return;
+
+  fp.addEventListener("touchstart", function(e) {
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      var hit = _fpHitTest(e.touches[0].clientX, e.touches[0].clientY);
+      if (hit.cerchio) {
+        _fpDraggingCerchio = true;
+      } else {
+        _fpDraggingCerchio = false;
+        _fpActiveCellIdx = hit.cellIdx;
+        if (!getImgForCell(_fpActiveCellIdx)) return;
+      }
+      _fpDragging = true;
+      _fpPinching = false;
+      _fpLastX = e.touches[0].clientX;
+      _fpLastY = e.touches[0].clientY;
+    } else if (e.touches.length === 2) {
+      _fpDragging = false;
+      _fpPinching = true;
+      _fpInitDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      if (_fpDraggingCerchio) {
+        var ci = getCerchioImgForDrag();
+        _fpInitScale = ci && ci.transform ? ci.transform.scale : 1;
+      } else {
+        var t = getTransformForCell(_fpActiveCellIdx);
+        _fpInitScale = t ? t.scale : 1;
+      }
+    }
+  }, { passive: false });
+
+  fp.addEventListener("touchmove", function(e) {
+    e.preventDefault();
+    // Scala spostamento: da px CSS fp → px canvas 1080×1440
+    var fpRect = fp.getBoundingClientRect();
+    var scaleX = fp.width  / fpRect.width;
+    var scaleY = fp.height / fpRect.height;
+
+    if (_fpDragging && e.touches.length === 1) {
+      var dx = (e.touches[0].clientX - _fpLastX) * scaleX;
+      var dy = (e.touches[0].clientY - _fpLastY) * scaleY;
+
+      if (_fpDraggingCerchio) {
+        var ci = getCerchioImgForDrag();
+        if (ci && ci.transform && ci.img) {
+          ci.transform.offsetX += dx;
+          ci.transform.offsetY += dy;
+          clampTransform(ci.transform, ci.img, 240 - 8, 240 - 8);
         }
-        _fpDragging = true;
-        _fpPinching = false;
-        _fpLastX = e.touches[0].clientX;
-        _fpLastY = e.touches[0].clientY;
-      } else if (e.touches.length === 2) {
-        _fpPinching = true;
-        _fpDragging = false;
-        _fpInitDist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        if (_fpDraggingCerchio) {
-          var ci = getCerchioImgForDrag();
-          _fpInitScale = ci && ci.transform ? ci.transform.scale : 1;
-        } else {
-          var t = getTransformForCell(_fpActiveCellIdx);
-          _fpInitScale = t ? t.scale : 1;
+      } else {
+        var t2 = getTransformForCell(_fpActiveCellIdx);
+        var img2 = getImgForCell(_fpActiveCellIdx);
+        if (t2 && img2) {
+          t2.offsetX += dx;
+          t2.offsetY += dy;
+          var cr = getRectForCell(_fpActiveCellIdx);
+          clampTransform(t2, img2, cr.w, cr.h);
         }
       }
-    }, { passive: false });
+      _fpLastX = e.touches[0].clientX;
+      _fpLastY = e.touches[0].clientY;
+      render();
+      _fpRender();
 
-    fp.addEventListener("touchmove", function(e) {
-      e.preventDefault();
-      var src = document.getElementById("mainCanvas");
-      var scaleCSS = src.width / fp.width; // canvas coord per pixel CSS
+    } else if (_fpPinching && e.touches.length === 2) {
+      var d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      var newScale = Math.max(1, Math.min(4, _fpInitScale * d / _fpInitDist));
 
-      if (_fpDragging && e.touches.length === 1) {
-        var dx = (e.touches[0].clientX - _fpLastX) * scaleCSS;
-        var dy = (e.touches[0].clientY - _fpLastY) * scaleCSS;
-        if (_fpDraggingCerchio) {
-          var ci = getCerchioImgForDrag();
-          if (ci && ci.transform && ci.img) {
-            ci.transform.offsetX += dx;
-            ci.transform.offsetY += dy;
-            clampTransform(ci.transform, ci.img, 240 - 8, 240 - 8);
-          }
-        } else {
-          var t = getTransformForCell(_fpActiveCellIdx);
-          var img = getImgForCell(_fpActiveCellIdx);
-          if (t && img) {
-            t.offsetX += dx;
-            t.offsetY += dy;
-            var cr = getRectForCell(_fpActiveCellIdx);
-            clampTransform(t, img, cr.w, cr.h);
-          }
+      if (_fpDraggingCerchio) {
+        var ci3 = getCerchioImgForDrag();
+        if (ci3 && ci3.transform && ci3.img) {
+          ci3.transform.scale = newScale;
+          clampTransform(ci3.transform, ci3.img, 240 - 8, 240 - 8);
         }
-        _fpLastX = e.touches[0].clientX;
-        _fpLastY = e.touches[0].clientY;
-        render();
-        _fpRender();
-      } else if (_fpPinching && e.touches.length === 2) {
-        var d = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        var newScale = Math.max(1, Math.min(4, _fpInitScale * d / _fpInitDist));
-        if (_fpDraggingCerchio) {
-          var ci2 = getCerchioImgForDrag();
-          if (ci2 && ci2.transform && ci2.img) {
-            ci2.transform.scale = newScale;
-            clampTransform(ci2.transform, ci2.img, 240 - 8, 240 - 8);
-          }
-        } else {
-          var t2 = getTransformForCell(_fpActiveCellIdx);
-          var img2 = getImgForCell(_fpActiveCellIdx);
-          if (t2 && img2) {
-            t2.scale = Math.min(newScale, 3);
-            var cr2 = getRectForCell(_fpActiveCellIdx);
-            clampTransform(t2, img2, cr2.w, cr2.h);
-          }
+      } else {
+        var t3 = getTransformForCell(_fpActiveCellIdx);
+        var img3 = getImgForCell(_fpActiveCellIdx);
+        if (t3 && img3) {
+          t3.scale = Math.min(newScale, 3);
+          var cr3 = getRectForCell(_fpActiveCellIdx);
+          clampTransform(t3, img3, cr3.w, cr3.h);
         }
-        render();
-        _fpRender();
       }
-    }, { passive: false });
+      render();
+      _fpRender();
+    }
+  }, { passive: false });
 
-    fp.addEventListener("touchend", function(e) {
-      if (e.touches.length === 0) {
-        _fpDragging = false; _fpPinching = false;
-      } else if (e.touches.length === 1 && _fpPinching) {
-        _fpPinching = false; _fpDragging = true;
-        _fpLastX = e.touches[0].clientX;
-        _fpLastY = e.touches[0].clientY;
-      }
-    }, { passive: false });
-  });
-})();
+  fp.addEventListener("touchend", function(e) {
+    if (e.touches.length === 0) { _fpDragging = false; _fpPinching = false; }
+    else if (e.touches.length === 1 && _fpPinching) {
+      _fpPinching = false; _fpDragging = true;
+      _fpLastX = e.touches[0].clientX;
+      _fpLastY = e.touches[0].clientY;
+    }
+  }, { passive: false });
+});
 
 function wrapRenderForFullPreview() {}
 
