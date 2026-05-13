@@ -4972,16 +4972,10 @@ async function canvasToDataURL(canvas) {
   });
 }
 
-// === FULLSCREEN PREVIEW (solo mobile) ===
-var _fpOpen = false;
-var _fpDragging = false;
-var _fpPinching = false;
-var _fpLastX = 0;
-var _fpLastY = 0;
-var _fpInitDist = 0;
-var _fpInitScale = 1;
-var _fpActiveCellIdx = -1;
-var _fpDraggingCerchio = false;
+// === FULLSCREEN PREVIEW ===
+var _fpOpen = false, _fpDragging = false, _fpPinching = false;
+var _fpLastX = 0, _fpLastY = 0, _fpInitDist = 0, _fpInitScale = 1;
+var _fpActiveCellIdx = -1, _fpIsCerchio = false;
 
 function openFullPreview() {
   _fpOpen = true;
@@ -4992,14 +4986,11 @@ function openFullPreview() {
 
 function _fpRender() {
   var src = document.getElementById("mainCanvas");
-  var fp = document.getElementById("fullPreviewCanvas");
+  var fp  = document.getElementById("fullPreviewCanvas");
   if (!src || !fp) return;
-  // Canvas fullscreen = stessa risoluzione del canvas reale (1080×1440)
-  // ma visualizzato più grande
-  fp.width = src.width;
+  fp.width  = src.width;
   fp.height = src.height;
-  var vw = window.innerWidth;
-  var vh = window.innerHeight - 80;
+  var vw = window.innerWidth, vh = window.innerHeight - 80;
   var ratio = Math.min(vw / src.width, vh / src.height);
   fp.style.width  = Math.round(src.width  * ratio) + "px";
   fp.style.height = Math.round(src.height * ratio) + "px";
@@ -5012,47 +5003,38 @@ function closeFullPreview() {
   document.body.style.overflow = "";
 }
 
-// Converte coordinate CSS del fullPreviewCanvas → coordinate canvas reale (1080×1440)
-function _fpCSStoCanvas(cssX, cssY) {
-  var fp = document.getElementById("fullPreviewCanvas");
+// Converte clientX/Y → coordinate canvas 1080×1440
+function _fpToCanvas(clientX, clientY) {
+  var fp   = document.getElementById("fullPreviewCanvas");
   var rect = fp.getBoundingClientRect();
   return {
-    x: (cssX - rect.left) / rect.width  * fp.width,
-    y: (cssY - rect.top)  / rect.height * fp.height
+    x: (clientX - rect.left) / rect.width  * fp.width,
+    y: (clientY - rect.top)  / rect.height * fp.height
   };
 }
 
-// Determina cosa si sta draggando (cella griglia o cerchio) alle coordinate CSS del fp
-function _fpHitTest(cssX, cssY) {
-  var fp = document.getElementById("fullPreviewCanvas");
-  var rect = fp.getBoundingClientRect();
-  var localCssX = cssX - rect.left;
-  var localCssY = cssY - rect.top;
-
-  // isPointInCerchio usa le coordinate CSS del canvasEl —
-  // qui siamo nel fp, quindi ricalcolo usando le coordinate canvas reali
-  var cc = _fpCSStoCanvas(cssX, cssY);
-  var c = getCerchioCenter(); // ritorna centro in coordinate canvas reale
-  if (c) {
-    var dist = Math.sqrt((cc.x - c.x)*(cc.x - c.x) + (cc.y - c.y)*(cc.y - c.y));
-    if (dist <= c.r) return { cerchio: true };
+// Hit-test in coordinate canvas
+function _fpHitTest(cx, cy) {
+  // 1) cerchio?
+  var cerchioImg = getCerchioImgForDrag();
+  if (cerchioImg && cerchioImg.img && cerchioImg.img.complete) {
+    var c = getCerchioCenter();
+    if (c) {
+      var d = Math.sqrt((cx - c.x)*(cx - c.x) + (cy - c.y)*(cy - c.y));
+      if (d <= c.r) return { cerchio: true };
+    }
   }
-
-  // Hit-test celle griglia
-  var container = getCurrentMultiFotosContainer();
+  // 2) cella griglia?
+  var container  = getCurrentMultiFotosContainer();
   var fotosExtra = (container && container.fotosExtra) || [];
-  var mainImg = getCurrentImg();
-  var n = 0;
-  if (mainImg) n++;
-  fotosExtra.forEach(function(f) { if (f && f.img) n++; });
-
-  if (n <= 1) return { cellIdx: -1 };
-
-  var rects = computeGridRects(n, 0, 0, 1080, 1440, 8);
-  for (var i = 0; i < rects.length; i++) {
-    var r = rects[i];
-    if (cc.x >= r.x && cc.x <= r.x + r.w && cc.y >= r.y && cc.y <= r.y + r.h) {
-      return { cellIdx: i - 1 };
+  var mainImg    = getCurrentImg();
+  var n = (mainImg ? 1 : 0) + fotosExtra.filter(function(f){ return f && f.img; }).length;
+  if (n > 1) {
+    var rects = computeGridRects(n, 0, 0, 1080, 1440, 8);
+    for (var i = 0; i < rects.length; i++) {
+      var r = rects[i];
+      if (cx >= r.x && cx <= r.x+r.w && cy >= r.y && cy <= r.y+r.h)
+        return { cellIdx: i - 1 };  // -1 = principale
     }
   }
   return { cellIdx: -1 };
@@ -5065,26 +5047,26 @@ document.addEventListener("DOMContentLoaded", function() {
   fp.addEventListener("touchstart", function(e) {
     e.preventDefault();
     if (e.touches.length === 1) {
-      var hit = _fpHitTest(e.touches[0].clientX, e.touches[0].clientY);
+      var p   = _fpToCanvas(e.touches[0].clientX, e.touches[0].clientY);
+      var hit = _fpHitTest(p.x, p.y);
       if (hit.cerchio) {
-        _fpDraggingCerchio = true;
+        _fpIsCerchio = true;
       } else {
-        _fpDraggingCerchio = false;
-        _fpActiveCellIdx = hit.cellIdx;
-        if (!getImgForCell(_fpActiveCellIdx)) return;
+        _fpIsCerchio = false;
+        _fpActiveCellIdx = (hit.cellIdx !== undefined) ? hit.cellIdx : -1;
+        if (!getImgForCell(_fpActiveCellIdx)) _fpActiveCellIdx = -1;
+        if (!getImgForCell(_fpActiveCellIdx)) { _fpDragging = false; return; }
       }
-      _fpDragging = true;
-      _fpPinching = false;
+      _fpDragging = true; _fpPinching = false;
       _fpLastX = e.touches[0].clientX;
       _fpLastY = e.touches[0].clientY;
+
     } else if (e.touches.length === 2) {
-      _fpDragging = false;
-      _fpPinching = true;
+      _fpDragging = false; _fpPinching = true;
       _fpInitDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      if (_fpDraggingCerchio) {
+        e.touches[0].clientY - e.touches[1].clientY);
+      if (_fpIsCerchio) {
         var ci = getCerchioImgForDrag();
         _fpInitScale = ci && ci.transform ? ci.transform.scale : 1;
       } else {
@@ -5096,61 +5078,52 @@ document.addEventListener("DOMContentLoaded", function() {
 
   fp.addEventListener("touchmove", function(e) {
     e.preventDefault();
-    // Scala spostamento: da px CSS fp → px canvas 1080×1440
     var fpRect = fp.getBoundingClientRect();
-    var scaleX = fp.width  / fpRect.width;
-    var scaleY = fp.height / fpRect.height;
+    // 1 px CSS = (fp.width / fpRect.width) px canvas
+    var sc = fp.width / fpRect.width;
 
     if (_fpDragging && e.touches.length === 1) {
-      var dx = (e.touches[0].clientX - _fpLastX) * scaleX;
-      var dy = (e.touches[0].clientY - _fpLastY) * scaleY;
-
-      if (_fpDraggingCerchio) {
+      var dx = (e.touches[0].clientX - _fpLastX) * sc;
+      var dy = (e.touches[0].clientY - _fpLastY) * sc;
+      if (_fpIsCerchio) {
         var ci = getCerchioImgForDrag();
         if (ci && ci.transform && ci.img) {
-          ci.transform.offsetX += dx;
-          ci.transform.offsetY += dy;
-          clampTransform(ci.transform, ci.img, 240 - 8, 240 - 8);
+          ci.transform.offsetX += dx; ci.transform.offsetY += dy;
+          clampTransform(ci.transform, ci.img, 232, 232);
+        }
+      } else {
+        var t = getTransformForCell(_fpActiveCellIdx);
+        var img = getImgForCell(_fpActiveCellIdx);
+        if (t && img) {
+          t.offsetX += dx; t.offsetY += dy;
+          var cr = getRectForCell(_fpActiveCellIdx);
+          clampTransform(t, img, cr.w, cr.h);
+        }
+      }
+      _fpLastX = e.touches[0].clientX; _fpLastY = e.touches[0].clientY;
+      render(); _fpRender();
+
+    } else if (_fpPinching && e.touches.length === 2) {
+      var dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY);
+      var ns = Math.max(1, Math.min(4, _fpInitScale * dist / _fpInitDist));
+      if (_fpIsCerchio) {
+        var ci2 = getCerchioImgForDrag();
+        if (ci2 && ci2.transform && ci2.img) {
+          ci2.transform.scale = ns;
+          clampTransform(ci2.transform, ci2.img, 232, 232);
         }
       } else {
         var t2 = getTransformForCell(_fpActiveCellIdx);
         var img2 = getImgForCell(_fpActiveCellIdx);
         if (t2 && img2) {
-          t2.offsetX += dx;
-          t2.offsetY += dy;
-          var cr = getRectForCell(_fpActiveCellIdx);
-          clampTransform(t2, img2, cr.w, cr.h);
+          t2.scale = Math.min(ns, 3);
+          var cr2 = getRectForCell(_fpActiveCellIdx);
+          clampTransform(t2, img2, cr2.w, cr2.h);
         }
       }
-      _fpLastX = e.touches[0].clientX;
-      _fpLastY = e.touches[0].clientY;
-      render();
-      _fpRender();
-
-    } else if (_fpPinching && e.touches.length === 2) {
-      var d = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY
-      );
-      var newScale = Math.max(1, Math.min(4, _fpInitScale * d / _fpInitDist));
-
-      if (_fpDraggingCerchio) {
-        var ci3 = getCerchioImgForDrag();
-        if (ci3 && ci3.transform && ci3.img) {
-          ci3.transform.scale = newScale;
-          clampTransform(ci3.transform, ci3.img, 240 - 8, 240 - 8);
-        }
-      } else {
-        var t3 = getTransformForCell(_fpActiveCellIdx);
-        var img3 = getImgForCell(_fpActiveCellIdx);
-        if (t3 && img3) {
-          t3.scale = Math.min(newScale, 3);
-          var cr3 = getRectForCell(_fpActiveCellIdx);
-          clampTransform(t3, img3, cr3.w, cr3.h);
-        }
-      }
-      render();
-      _fpRender();
+      render(); _fpRender();
     }
   }, { passive: false });
 
@@ -5158,8 +5131,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if (e.touches.length === 0) { _fpDragging = false; _fpPinching = false; }
     else if (e.touches.length === 1 && _fpPinching) {
       _fpPinching = false; _fpDragging = true;
-      _fpLastX = e.touches[0].clientX;
-      _fpLastY = e.touches[0].clientY;
+      _fpLastX = e.touches[0].clientX; _fpLastY = e.touches[0].clientY;
     }
   }, { passive: false });
 });
