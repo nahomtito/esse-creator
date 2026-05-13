@@ -1023,6 +1023,7 @@ input:focus, textarea:focus { border-color: var(--accent); }
 }
 .preview-stage {
   flex: 1;
+  position: relative;
   display: flex; align-items: center; justify-content: center;
   padding: 32px;
   overflow: auto;
@@ -1040,6 +1041,31 @@ input:focus, textarea:focus { border-color: var(--accent); }
   position: relative;
   filter: drop-shadow(0 30px 80px rgba(0,0,0,0.8));
   transition: transform 0.3s;
+}
+
+.btn-full-preview {
+  display: none;
+  position: absolute;
+  bottom: 14px;
+  right: 14px;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #fff;
+  border-radius: 10px;
+  width: 42px;
+  height: 42px;
+  font-size: 20px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  z-index: 10;
+}
+
+@media (max-width: 768px) {
+  .btn-full-preview { display: flex !important; }
 }
 
 #mainCanvas {
@@ -1776,6 +1802,7 @@ input[type="file"] { display: none; }
       <canvas id="mainCanvas" width="1080" height="1440"></canvas>
       <div class="tb-hint" id="dragHint">Trascina per spostare · Rotella o pinch per zoom</div>
     </div>
+    <button id="btnFullPreview" onclick="openFullPreview()" class="btn-full-preview">⛶</button>
   </div>
 </div>
 
@@ -4922,6 +4949,25 @@ async function canvasToDataURL(canvas) {
   });
 }
 
+// === FULLSCREEN PREVIEW (solo mobile) ===
+function openFullPreview() {
+  var canvas = document.getElementById("mainCanvas");
+  if (!canvas) return;
+  var dataURL = canvas.toDataURL("image/png");
+  document.getElementById("fullPreviewImg").src = dataURL;
+  var overlay = document.getElementById("fullPreviewOverlay");
+  overlay.style.display = "flex";
+  // Blocca scroll body
+  document.body.style.overflow = "hidden";
+}
+
+function closeFullPreview() {
+  document.getElementById("fullPreviewOverlay").style.display = "none";
+  document.body.style.overflow = "";
+}
+
+function wrapRenderForFullPreview() {}
+
 function setZoom(v) {
   var t = getCurrentTransform();
   if (!t) return;
@@ -5733,7 +5779,16 @@ document.fonts.ready.then(function() {
 });
 
 </script>
-<!-- LIGHTBOX MOBILE per salvare foto in libreria -->
+<!-- FULLSCREEN PREVIEW (solo mobile) -->
+<div id="fullPreviewOverlay" style="display:none;position:fixed;inset:0;background:#000;z-index:9998;flex-direction:column;align-items:center;justify-content:center;">
+  <div style="position:absolute;top:0;left:0;right:0;padding:14px 16px;padding-top:calc(14px + env(safe-area-inset-top));display:flex;justify-content:space-between;align-items:center;background:linear-gradient(to bottom,rgba(0,0,0,0.7),transparent);z-index:1;">
+    <span style="color:rgba(255,255,255,0.6);font-size:11px;letter-spacing:0.08em;">ANTEPRIMA</span>
+    <button onclick="closeFullPreview()" style="background:rgba(255,255,255,0.15);border:none;color:#fff;border-radius:50%;width:32px;height:32px;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">×</button>
+  </div>
+  <img id="fullPreviewImg" style="max-width:100%;max-height:100vh;object-fit:contain;" src="" alt="">
+</div>
+
+</body>
 <div id="mobileLightbox" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.95);z-index:9999;flex-direction:column;align-items:center;justify-content:center;padding:20px;">
   <div style="color:#fff;font-size:13px;text-align:center;margin-bottom:16px;letter-spacing:0.04em;opacity:0.8;">
     Immagine <span id="lbCurrent">1</span> di <span id="lbTotal">1</span>
