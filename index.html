@@ -5661,19 +5661,46 @@ function _tcEditRenderLoop() {
   if (_tc._editAF) { cancelAnimationFrame(_tc._editAF); _tc._editAF = null; }
   var vid = document.getElementById('tcEditVid'), cvs = document.getElementById('tcEditCanvas');
   if (!vid || !cvs) return;
+
+  // Canvas grafica cached — ricreato solo quando cambiano dati
+  var gfxCache = null, gfxKey = '';
+
   function loop() {
     var ed = document.getElementById('titCamEditor');
     if (!ed || ed.style.display === 'none') return;
     var dw = vid.offsetWidth, dh = vid.offsetHeight;
     if (dw < 2 || dh < 2) { _tc._editAF = requestAnimationFrame(loop); return; }
-    cvs.width = dw; cvs.height = dh;
-    var ctx = cvs.getContext('2d'); ctx.clearRect(0, 0, dw, dh);
-    var tmp = document.createElement('canvas'); tmp.width = 1080; tmp.height = 1920;
-    renderTitoletti(tmp.getContext('2d'), tmp, { titolo: _tc.titolo, categoria: _tc.categoria, bottomDist: _tc.bottomDist });
-    var vw = vid.videoWidth || 1080, vh = vid.videoHeight || 1920, vR = vw/vh, dR = dw/dh, fw, fh, fx, fy;
-    if (vR > dR) { fh = dh; fw = dh * vR; fx = (dw-fw)/2; fy = 0; }
-    else         { fw = dw; fh = dw / vR; fx = 0; fy = (dh-fh)/2; }
-    ctx.drawImage(tmp, fx, fy, fw, fh);
+
+    // Ridisegna grafica solo se cambiati titolo/categoria/posizione
+    var key = _tc.titolo + '|' + _tc.categoria + '|' + _tc.bottomDist;
+    if (!gfxCache || gfxKey !== key) {
+      gfxCache = document.createElement('canvas');
+      gfxCache.width = 1080; gfxCache.height = 1920;
+      renderTitoletti(gfxCache.getContext('2d'), gfxCache, {
+        titolo: _tc.titolo, categoria: _tc.categoria, bottomDist: _tc.bottomDist
+      });
+      gfxKey = key;
+    }
+
+    // Canvas display: stesse dimensioni del viewport
+    if (cvs.width !== dw || cvs.height !== dh) { cvs.width = dw; cvs.height = dh; }
+    var ctx = cvs.getContext('2d');
+    ctx.clearRect(0, 0, dw, dh);
+
+    // Calcola area video con object-fit:cover
+    var vw = vid.videoWidth || 9, vh = vid.videoHeight || 16;
+    var vR = vw / vh, dR = dw / dh;
+    var fw, fh, fx, fy;
+    // cover: il lato che "trabocca" viene centrato
+    if (vR < dR) { fw = dw; fh = dw / vR; fx = 0; fy = (dh - fh) / 2; }
+    else         { fh = dh; fw = dh * vR; fx = (dw - fw) / 2; fy = 0; }
+
+    // 1. Video
+    if (vid.readyState >= 2) ctx.drawImage(vid, fx, fy, fw, fh);
+
+    // 2. Grafica sovrapposta (stessa area cover del video)
+    ctx.drawImage(gfxCache, fx, fy, fw, fh);
+
     _tc._editAF = requestAnimationFrame(loop);
   }
   loop();
