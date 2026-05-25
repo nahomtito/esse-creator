@@ -1800,11 +1800,28 @@ input[type="file"] { display: none; }
     <!-- ============= TITOLETTI ============= -->
     <div id="titolettiSection" style="display:none;">
       <div class="section">
-        <!-- Bottone AR Camera -->
-        <button onclick="openAR()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:linear-gradient(135deg,#1C1F1C,#2a2d2a);border:1px solid rgba(255,241,122,0.3);color:#FFF172;border-radius:12px;padding:14px;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;margin-bottom:16px;">
-          <span style="font-size:18px;">📹</span> Registra con AR
-        </button>
+
         <div class="slide-list" id="titolettiList"></div>
+        
+        <!-- Media sotto la grafica -->
+        <div class="section-label" style="margin-top:16px;">Immagine / Video sotto la grafica</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+          <div id="titolettiImgThumb" onclick="document.getElementById('titolettiImgInput').click()" style="width:100%;height:80px;border-radius:8px;background:#1a1a1a;border:1px dashed var(--border);overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;">
+            <span id="titolettiThumbPlaceholder" style="color:var(--text2);font-size:13px;">+ Scegli immagine o video…</span>
+          </div>
+          <button id="titolettiImgRemove" onclick="removeTitolettiImg()" style="display:none;background:transparent;border:1px solid #333;color:var(--text2);border-radius:8px;padding:7px 12px;font-family:inherit;font-size:11px;cursor:pointer;">
+            Rimuovi media
+          </button>
+          <input type="file" id="titolettiImgInput" accept="image/*,video/*" style="display:none;" onchange="handleTitolettiImg(this)">
+          <!-- Slider posizione grafica -->
+          <div id="titolettiPosRow" style="display:none;align-items:center;gap:8px;">
+            <span style="color:var(--text2);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;flex-shrink:0;">Posizione</span>
+            <input type="range" id="titolettiPosSlider" min="100" max="800" value="460" oninput="onTitolettiPosChange(this.value)" style="flex:1;accent-color:var(--accent);">
+          </div>
+          <div style="font-size:11px;color:var(--text2);line-height:1.4;">
+            Export: PNG grafica trasparente + PNG/MP4 con media
+          </div>
+        </div>
       </div>
     </div> <!-- /titolettiSection -->
 
@@ -2697,14 +2714,45 @@ function _doRender() {
     if (titIdx < 0) titIdx = 0;
     var titPost = state.slides[titIdx];
     if (titPost) {
-      // Sfondo "trasparente" → mostriamo una griglia checker nel preview per indicarlo
-      // Il rendering vero si fa con clearRect dentro renderTitoletti
-      // Ma per il preview UI vogliamo vedere la trasparenza, quindi disegno checker prima
-      drawTransparencyCheckerboard(ctx, canvas);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Aggiorna UI in base alla slide corrente
+      var _titHasImg = !!(titPost.fotoImg);
+      _titolettiImg = titPost.fotoImg || null;
+      _tcShowTitolettiMediaUI(_titHasImg);
+      // Aggiorna slider posizione
+      var _posSlider = document.getElementById('titolettiPosSlider');
+      if (_posSlider) _posSlider.value = titPost.bottomDist || 460;
+      // Aggiorna thumbnail: mostra media della slide corrente o resetta
+      var _thumb = document.getElementById('titolettiImgThumb');
+      var _placeholder = document.getElementById('titolettiThumbPlaceholder');
+      if (_thumb) {
+        var _existingMedia = _thumb.querySelector('img,video');
+        if (_existingMedia) _existingMedia.remove();
+        if (_placeholder) _placeholder.style.display = '';
+        if (_titHasImg && titPost._src) {
+          _tcUpdateTitolettiThumb(titPost._src, !!(titPost._isVideo));
+        }
+      }
+      var _titFotoImg = titPost.fotoImg || null;
+      var _titFotoTr  = titPost.fotoTransform || { offsetX:0, offsetY:0, scale:1 };
+      if (_titFotoImg) {
+        drawImageCover(ctx, _titFotoImg, 0, 0, canvas.width, canvas.height,
+          _titFotoTr, { brightness:100, contrast:100, saturate:100, sharpen:0 }, 0, false);
+      } else {
+        // Usa checkerboard cached per non ricalcolarla ogni frame
+        if (!_tcCheckerCache || _tcCheckerCache.width !== canvas.width) {
+          _tcCheckerCache = document.createElement('canvas');
+          _tcCheckerCache.width = canvas.width; _tcCheckerCache.height = canvas.height;
+          drawTransparencyCheckerboard(_tcCheckerCache.getContext('2d'), _tcCheckerCache);
+        }
+        ctx.drawImage(_tcCheckerCache, 0, 0);
+      }
       
       renderTitoletti(ctx, canvas, {
         titolo: titPost.testo || "LOREM IPSUM DOLOR SIT AMET, CONSECTETUER ADIPISCING ELIT, SED DIAM",
-        categoria: state.categoria
+        categoria: state.categoria,
+        bottomDist: titPost.bottomDist || 460
       });
     }
     return;
@@ -4227,6 +4275,12 @@ function clampTransform(transform, img, canvasW, canvasH) {
 }
 
 function getCurrentTransform() {
+  // TITOLETTI: usa state.fotoTransform globale
+  if (state.tipo === "titoletti") {
+    var titIdx = state.currentPreview - 1; if (titIdx < 0) titIdx = 0;
+    var titS = state.slides[titIdx];
+    return (titS && titS.fotoImg) ? titS.fotoTransform : null;
+  }
   // POST CLASSICO multi-post: state.slides[idx]
   if (state.tipo === "apertura") {
     var idx = state.currentPreview - 1;
@@ -4248,6 +4302,11 @@ function getCurrentTransform() {
 }
 
 function getCurrentImg() {
+  if (state.tipo === "titoletti") {
+    var titIdx2 = state.currentPreview - 1; if (titIdx2 < 0) titIdx2 = 0;
+    var titS2 = state.slides[titIdx2];
+    return titS2 ? titS2.fotoImg : null;
+  }
   if (state.tipo === "apertura") {
     var idx = state.currentPreview - 1;
     if (idx < 0) idx = 0;
@@ -4622,17 +4681,27 @@ function startVideoLoop(video) {
   if (_videoLoopRaf) cancelAnimationFrame(_videoLoopRaf);
   _videoLoopActive = video;
   
-  function tick() {
-    // Re-render solo se il video è ancora corrente e sta giocando
-    if (!_videoLoopActive) return;
-    if (_videoLoopActive.paused || _videoLoopActive.ended) {
-      _videoLoopRaf = requestAnimationFrame(tick);
-      return;
+  // Usa requestVideoFrameCallback se disponibile (più efficiente, render solo su nuovo frame)
+  if ('requestVideoFrameCallback' in video) {
+    function onFrame() {
+      if (_videoLoopActive !== video) return; // video cambiato
+      render();
+      video.requestVideoFrameCallback(onFrame);
     }
-    render();
+    video.requestVideoFrameCallback(onFrame);
+  } else {
+    // Fallback RAF con throttle a 30fps
+    var _lastFrameTime = 0;
+    function tick(now) {
+      if (!_videoLoopActive || _videoLoopActive !== video) return;
+      if (now - _lastFrameTime > 33) { // ~30fps
+        _lastFrameTime = now;
+        if (!video.paused && !video.ended) render();
+      }
+      _videoLoopRaf = requestAnimationFrame(tick);
+    }
     _videoLoopRaf = requestAnimationFrame(tick);
   }
-  tick();
 }
 
 function stopVideoLoop() {
@@ -5497,10 +5566,24 @@ function _tcStopAll() {
 async function _tcStartCamera() {
   if (_tc.stream) { _tc.stream.getTracks().forEach(function(t) { t.stop(); }); _tc.stream = null; }
   try {
-    _tc.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: _tc.facing, width: { ideal: 1080 }, height: { ideal: 1920 } },
-      audio: true
-    });
+    // Primo tentativo: portrait nativo (alcuni device lo supportano)
+    try {
+      _tc.stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: _tc.facing,
+          width:  { ideal: 1080 },
+          height: { ideal: 1920 },
+          aspectRatio: { ideal: 9/16 }
+        },
+        audio: true
+      });
+    } catch(e2) {
+      // Fallback senza aspectRatio
+      _tc.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: _tc.facing, width: { ideal: 1080 }, height: { ideal: 1920 } },
+        audio: true
+      });
+    }
     var v = document.getElementById('tcRawVid');
     v.srcObject = _tc.stream; v.muted = true; await v.play();
   } catch(e) { alert('Fotocamera non disponibile: ' + e.message); closeTitCam(); }
@@ -5736,6 +5819,134 @@ function _tcEditClose() {
   document.getElementById('titCamEditor').style.display = 'none';
   document.body.style.overflow = '';
 }
+
+
+// ── TITOLETTI: immagine sotto la grafica ──────────────────────────────
+var _titolettiImg = null; // HTMLImageElement
+var _tcCheckerCache = null; // canvas cache per checkerboard
+
+function handleTitolettiImg(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var tIdx = state.currentPreview - 1; if (tIdx < 0) tIdx = 0;
+  var slide = state.slides[tIdx];
+  if (!slide) return;
+  var isVideo = file.type.indexOf('video') === 0;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    if (isVideo) {
+      var video = document.createElement('video');
+      video.src = e.target.result;
+      video.muted = true; video.loop = true; video.playsInline = true;
+      video.onloadedmetadata = function() {
+        video.naturalWidth = video.videoWidth;
+        video.naturalHeight = video.videoHeight;
+        video._isVideo = true;
+        slide.fotoImg = video;
+        slide.fotoTransform = { offsetX: 0, offsetY: 0, scale: 1 };
+        slide._isVideo = true;
+        slide._src = e.target.result;
+        _titolettiImg = video;
+        video.play().catch(function(){});
+        if (typeof startVideoLoop === 'function') startVideoLoop(video);
+        _tcUpdateTitolettiThumb(e.target.result, true);
+        _tcShowTitolettiMediaUI(true);
+        render();
+      };
+    } else {
+      var img = new Image();
+      img.onload = function() {
+        slide.fotoImg = img;
+        slide.fotoTransform = { offsetX: 0, offsetY: 0, scale: 1 };
+        slide._isVideo = false;
+        slide._src = e.target.result;
+        _titolettiImg = img;
+        _tcUpdateTitolettiThumb(e.target.result, false);
+        _tcShowTitolettiMediaUI(true);
+        render();
+      };
+      img.src = e.target.result;
+    }
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function _tcUpdateTitolettiThumb(src, isVideo) {
+  var thumb = document.getElementById('titolettiImgThumb');
+  var placeholder = document.getElementById('titolettiThumbPlaceholder');
+  if (!thumb) return;
+  // Rimuovi placeholder
+  if (placeholder) placeholder.style.display = 'none';
+  // Rimuovi preview precedente
+  var existing = thumb.querySelector('img,video');
+  if (existing) existing.remove();
+  // Aggiungi nuova preview
+  var el = document.createElement(isVideo ? 'video' : 'img');
+  el.src = src;
+  el.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
+  if (isVideo) { el.muted = true; el.loop = true; el.autoplay = true; el.playsInline = true; }
+  thumb.style.position = 'relative';
+  thumb.appendChild(el);
+}
+
+function _tcShowTitolettiMediaUI(show) {
+  var removeBtn = document.getElementById('titolettiImgRemove');
+  var posRow = document.getElementById('titolettiPosRow');
+  var tb = document.getElementById('canvasToolbar');
+  var hint = document.getElementById('dragHint');
+  if (removeBtn) removeBtn.style.display = show ? 'block' : 'none';
+  if (posRow) posRow.style.display = show ? 'flex' : 'none';
+  if (tb) { if (show) tb.classList.remove('hidden'); else tb.classList.add('hidden'); }
+  if (hint && show) hint.style.display = 'block';
+}
+
+function removeTitolettiImg() {
+  var tIdxR = state.currentPreview - 1; if (tIdxR < 0) tIdxR = 0;
+  var slide = state.slides[tIdxR];
+  if (slide) { slide.fotoImg = null; slide.fotoTransform = { offsetX:0, offsetY:0, scale:1 }; slide._isVideo = false; }
+  _titolettiImg = null;
+  // Ripristina thumbnail
+  var thumb = document.getElementById('titolettiImgThumb');
+  if (thumb) {
+    var existing = thumb.querySelector('img,video');
+    if (existing) existing.remove();
+    var placeholder = document.getElementById('titolettiThumbPlaceholder');
+    if (placeholder) placeholder.style.display = '';
+  }
+  _tcShowTitolettiMediaUI(false);
+  render();
+}
+
+function onTitolettiPosChange(val) {
+  var tIdx = state.currentPreview - 1; if (tIdx < 0) tIdx = 0;
+  if (state.slides[tIdx]) state.slides[tIdx].bottomDist = parseInt(val);
+  render();
+}
+
+// Render titoletti CON immagine sotto (canvas 1080x1920)
+function renderTitolettiConImmagine(ctx, canvas, data, bgImg) {
+  var W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  
+  if (bgImg) {
+    // Disegna immagine in cover
+    var iR = bgImg.width / bgImg.height;
+    var cR = W / H;
+    var dw, dh, dx, dy;
+    if (iR > cR) { dh = H; dw = H * iR; dx = (W - dw) / 2; dy = 0; }
+    else         { dw = W; dh = W / iR; dx = 0; dy = (H - dh) / 2; }
+    ctx.drawImage(bgImg, dx, dy, dw, dh);
+  }
+  
+  // Sovrapponi grafica titoletti (clearRect NON viene chiamato dentro renderTitoletti
+  // quando il canvas è già disegnato — usiamo un canvas temporaneo)
+  var tmp = document.createElement('canvas');
+  tmp.width = W; tmp.height = H;
+  renderTitoletti(tmp.getContext('2d'), tmp, data);
+  ctx.drawImage(tmp, 0, 0);
+}
+
 
 function wrapRenderForFullPreview() {}
 
@@ -6010,17 +6221,68 @@ async function exportAll() {
       // Pulisco sempre il canvas prima del render (per trasparenza)
       exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
       
-      renderTitoletti(exportCtx, exportCanvas, {
-        titolo: tp.testo,
-        categoria: state.categoria
-      });
+      var tpBottomDist = tp.bottomDist || 460;
       
-      var fileNumT = (i + 1) + ".png";
-      if (hasZip) {
-        var blobT = await canvasToBlob(exportCanvas);
-        folder.file(fileNumT, blobT);
-      } else {
-        if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); } else { await downloadCanvas(exportCanvas, fileNumT); }
+      // PNG grafica trasparente solo se non c'è media nella slide
+      if (!tp.fotoImg) {
+        exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+        renderTitoletti(exportCtx, exportCanvas, {
+          titolo: tp.testo,
+          categoria: state.categoria,
+          bottomDist: tpBottomDist
+        });
+        var fileNumT = (i + 1) + "_grafica.png";
+        if (hasZip) {
+          folder.file(fileNumT, await canvasToBlob(exportCanvas));
+        } else {
+          if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); }
+          else { await downloadCanvas(exportCanvas, fileNumT); }
+        }
+      }
+      
+      // Media (solo se presente nella slide)
+      if (tp.fotoImg) {
+        var tpTr = tp.fotoTransform || { offsetX:0, offsetY:0, scale:1 };
+        var tpFilters = { brightness:100, contrast:100, saturate:100, sharpen:0 };
+        
+        if (tp._isVideo && tp.fotoImg._isVideo) {
+          // Video: registra come MP4 in real-time
+          document.getElementById("loadingText").textContent = "Registrazione video " + (i+1) + "…";
+          var tpVideo = tp.fotoImg;
+          var renderFnTp = (function(slide, tr, filters, bdist) {
+            return function() {
+              exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+              drawImageCover(exportCtx, slide.fotoImg, 0, 0, exportCanvas.width, exportCanvas.height, tr, filters, 0, false);
+              renderTitoletti(exportCtx, exportCanvas, {
+                titolo: slide.testo, categoria: state.categoria, bottomDist: bdist
+              });
+            };
+          })(tp, tpTr, tpFilters, tpBottomDist);
+          
+          var videoResult = await recordCanvasAsVideo(tpVideo, exportCanvas, renderFnTp, tpVideo.duration * 1000);
+          var mp4Blob = videoResult.blob;
+          var fileNumTVid = (i + 1) + "_con_video.mp4";
+          if (hasZip) {
+            folder.file(fileNumTVid, mp4Blob);
+          } else {
+            if (isMobile) { mobileImages.push(URL.createObjectURL(mp4Blob)); }
+            else { var aVid = document.createElement('a'); aVid.href = URL.createObjectURL(mp4Blob); aVid.download = fileNumTVid; aVid.click(); }
+          }
+        } else {
+          // Immagine: PNG composito
+          exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+          drawImageCover(exportCtx, tp.fotoImg, 0, 0, exportCanvas.width, exportCanvas.height, tpTr, tpFilters, 0, false);
+          renderTitoletti(exportCtx, exportCanvas, {
+            titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist
+          });
+          var fileNumTImg = (i + 1) + "_con_immagine.png";
+          if (hasZip) {
+            folder.file(fileNumTImg, await canvasToBlob(exportCanvas));
+          } else {
+            if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); }
+            else { await downloadCanvas(exportCanvas, fileNumTImg); }
+          }
+        }
       }
     }
   
