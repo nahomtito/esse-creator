@@ -5577,12 +5577,46 @@ async function _tcStartCamera() {
     });
     var v = document.getElementById('tcRawVid');
     v.srcObject = _tc.stream; v.muted = true; await v.play();
-    // Log dimensioni effettive
+    v.style.transform = ''; // reset zoom al cambio camera
     var track = _tc.stream.getVideoTracks()[0];
     if (track) {
       var s = track.getSettings();
       console.log('[TitCam] Camera:', s.width + 'x' + s.height, s.facingMode);
     }
+    // Pinch-to-zoom via CSS transform (funziona su iPhone Safari)
+    var _tcZoom = 1, _tcZoomStart = 1, _tcPinchDist = 0;
+    v.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 2) {
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        _tcPinchDist = Math.sqrt(dx*dx + dy*dy);
+        _tcZoomStart = _tcZoom;
+      }
+    }, { passive: true });
+    v.addEventListener('touchmove', function(e) {
+      if (e.touches.length !== 2 || _tcPinchDist === 0) return;
+      e.preventDefault();
+      var dx = e.touches[0].clientX - e.touches[1].clientX;
+      var dy = e.touches[0].clientY - e.touches[1].clientY;
+      var d = Math.sqrt(dx*dx + dy*dy);
+      _tcZoom = Math.max(1, Math.min(5, _tcZoomStart * (d / _tcPinchDist)));
+      v.style.transform = 'scale(' + _tcZoom + ')';
+      v.style.transformOrigin = 'center center';
+    }, { passive: false });
+    // Wheel zoom su desktop
+    v.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      _tcZoom = Math.max(1, Math.min(5, _tcZoom - e.deltaY * 0.005));
+      v.style.transform = 'scale(' + _tcZoom + ')';
+    }, { passive: false });
+    // Tap to focus (feedback visivo)
+    v.addEventListener('click', function(e) {
+      var rect = v.getBoundingClientRect();
+      var dot = document.createElement('div');
+      dot.style.cssText = 'position:absolute;left:' + (e.clientX - rect.left - 25) + 'px;top:' + (e.clientY - rect.top - 25) + 'px;width:50px;height:50px;border:2px solid #FBF17A;border-radius:50%;pointer-events:none;z-index:7;animation:tcFocusPulse 0.6s ease-out;';
+      v.parentElement.appendChild(dot);
+      setTimeout(function() { if (dot.parentElement) dot.parentElement.removeChild(dot); }, 600);
+    });
   } catch(e) { alert('Fotocamera non disponibile: ' + e.message); closeTitCam(); }
 }
 
