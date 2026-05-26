@@ -1810,6 +1810,9 @@ input[type="file"] { display: none; }
           <div style="font-size:11px;color:var(--text2);line-height:1.4;">
             Export: PNG grafica trasparente + PNG/MP4 con media
           </div>
+          <div id="titolettiMobileNota" style="display:none;font-size:11px;color:#FBF17A;line-height:1.4;background:rgba(251,241,122,0.08);border:1px solid rgba(251,241,122,0.2);border-radius:6px;padding:8px 10px;">
+            Su iPhone: esporta video originale + PNG grafica separati — combinali in CapCut o Reels.
+          </div>
         </div>
       </div>
     </div> <!-- /titolettiSection -->
@@ -5927,6 +5930,10 @@ function handleTitolettiImg(input) {
       }
       _tcUpdateTitolettiThumb(objectURL, true);
       _tcShowTitolettiMediaUI(true);
+      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        var nota = document.getElementById('titolettiMobileNota');
+        if (nota) nota.style.display = 'block';
+      }
       render();
     };
   } else {
@@ -6124,58 +6131,67 @@ function canvasToBlob(canvas) {
 // Registra il canvas come video. Restituisce sempre MP4 (converte se necessario).
 async function recordCanvasAsVideo(videoEl, canvasEl, renderFn, durationMs) {
   const loadingEl = document.getElementById("loadingText");
-  if (loadingEl) loadingEl.textContent = "Caricamento encoder MP4…";
-  
-  // Pre-carico FFmpeg
-  try {
-    if (typeof window.__getFFmpeg !== "function") {
-      throw new Error("FFmpeg module non caricato. Usa il server tramite Avvia_Esse_Creator.command");
+  if (loadingEl) loadingEl.textContent = "Preparazione export…";
+
+  // Controlla se FFmpeg è disponibile (richiede server locale)
+  const ffmpegAvail = typeof window.__getFFmpeg === "function" && location.protocol !== "file:";
+  if (ffmpegAvail) {
+    try {
+      await window.__getFFmpeg();
+    } catch(err) {
+      console.warn("[record] FFmpeg non disponibile, uso MediaRecorder diretto:", err.message);
     }
-    await window.__getFFmpeg();
-    console.log("[record] FFmpeg pronto");
-  } catch(err) {
-    console.error("[record] FFmpeg load error:", err);
-    throw new Error("Encoder MP4 non disponibile. Apri l'app tramite Avvia_Esse_Creator.command (server locale).");
   }
-  
+
   return new Promise(function(resolve, reject) {
     if (!canvasEl.captureStream) {
       reject(new Error("captureStream non supportato dal browser"));
       return;
     }
-    
+
     const canvasStream = canvasEl.captureStream(30);
-    
+
+    // Scegli il miglior formato disponibile
+    // Safari supporta video/mp4 nativamente, Chrome preferisce webm
     let mimeType;
-    if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) mimeType = "video/webm;codecs=vp9";
+    if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1")) mimeType = "video/mp4;codecs=avc1";
+    else if (MediaRecorder.isTypeSupported("video/mp4")) mimeType = "video/mp4";
+    else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) mimeType = "video/webm;codecs=vp9";
     else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8")) mimeType = "video/webm;codecs=vp8";
     else if (MediaRecorder.isTypeSupported("video/webm")) mimeType = "video/webm";
-    else if (MediaRecorder.isTypeSupported("video/mp4")) mimeType = "video/mp4";
-    else { reject(new Error("Nessun formato video supportato")); return; }
-    
-    console.log("[record] Recording with", mimeType);
-    
+    else { reject(new Error("Nessun formato video supportato da questo browser")); return; }
+
+    console.log("[record] Formato:", mimeType, "FFmpeg:", ffmpegAvail);
+
     let recorder;
     try {
       recorder = new MediaRecorder(canvasStream, { mimeType: mimeType, videoBitsPerSecond: 8000000 });
     } catch(e) { reject(e); return; }
-    
+
     const chunks = [];
     recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-    
+
     recorder.onstop = async function() {
       const rawBlob = new Blob(chunks, { type: mimeType });
       stopVideoLoop();
-      console.log("[record] Recording done:", rawBlob.size, "bytes");
-      
+      console.log("[record] Registrazione completata:", rawBlob.size, "bytes");
+
+      // Se il formato è già mp4 o FFmpeg non serve, restituisci direttamente
+      if (mimeType.includes("mp4") || !ffmpegAvail) {
+        const ext = mimeType.includes("mp4") ? "mp4" : "webm";
+        resolve({ blob: rawBlob, mimeType: rawBlob.type || mimeType });
+        return;
+      }
+
+      // Altrimenti converti webm→mp4 con FFmpeg (server locale)
       try {
         if (loadingEl) loadingEl.textContent = "Conversione MP4 H.264…";
         const mp4Blob = await window.__convertToMp4(rawBlob, mimeType);
         resolve({ blob: mp4Blob, mimeType: "video/mp4" });
       } catch(err) {
-        console.error("[record] Conversion failed:", err);
-        showStatus("⚠ Conversione MP4 fallita", "error");
-        throw err;
+        console.warn("[record] Conversione FFmpeg fallita, restituisco webm:", err.message);
+        // Fallback: restituisci il webm comunque
+        resolve({ blob: rawBlob, mimeType: rawBlob.type || mimeType });
       }
     };
     
@@ -6287,81 +6303,93 @@ async function exportAll() {
   var zip = hasZip ? new JSZip() : null;
   var folder = zip ? zip.folder(folderName) : null;
   
-  // TITOLETTI: solo PNG trasparente, no video
+  // TITOLETTI
   if (state.tipo === "titoletti") {
     exportCanvas.width = 1080;
     exportCanvas.height = 1920;
-    
+
     for (var i = 0; i < state.slides.length; i++) {
       var tp = state.slides[i];
       document.getElementById("loadingText").textContent = "Generazione titoletto " + (i+1) + " di " + state.slides.length + "…";
       await new Promise(function(r) { setTimeout(r, 100); });
-      
-      // Pulisco sempre il canvas prima del render (per trasparenza)
-      exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
-      
+
       var tpBottomDist = tp.bottomDist || 460;
-      
-      // PNG grafica trasparente solo se non c'è media nella slide
+      var tpTr = tp.fotoTransform || { offsetX:0, offsetY:0, scale:1 };
+      var tpFilters = { brightness:100, contrast:100, saturate:100, sharpen:0 };
+
       if (!tp.fotoImg) {
+        // Solo grafica trasparente
         exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
-        renderTitoletti(exportCtx, exportCanvas, {
-          titolo: tp.testo,
-          categoria: state.categoria,
-          bottomDist: tpBottomDist
-        });
-        var fileNumT = (i + 1) + "_grafica.png";
-        if (hasZip) {
-          folder.file(fileNumT, await canvasToBlob(exportCanvas));
+        renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist });
+        var fname = (i+1) + "_grafica.png";
+        var blob = await canvasToBlob(exportCanvas);
+        if (hasZip) { folder.file(fname, blob); }
+        else if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); }
+        else { saveAs(blob, fname); }
+
+      } else if (tp._isVideo && tp.fotoImg._isVideo) {
+        // VIDEO
+        document.getElementById("loadingText").textContent = "Esportazione video " + (i+1) + "…";
+
+        if (isMobile) {
+          // iPhone/Safari: condividi subito video originale + PNG grafica via Share API
+          // Genera PNG grafica
+          exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+          renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist });
+          var gfxBlob = await canvasToBlob(exportCanvas);
+          var gfxFile = new File([gfxBlob], (i+1) + "_grafica.png", { type: "image/png" });
+
+          // Condividi via Share API (pannello iOS nativo)
+          var filesToShare = [];
+          if (tp._file) filesToShare.push(tp._file);
+          filesToShare.push(gfxFile);
+
+          hideLoading();
+          document.getElementById("btnExport").disabled = false;
+          try {
+            await navigator.share({ files: filesToShare, title: "Esse Titoletto" + (i+1) });
+          } catch(e) {
+            if (e.name !== "AbortError") {
+              // Fallback: salva grafica in galleria
+              mobileImages.push(await canvasToDataURL(exportCanvas));
+            }
+          }
+          // Salta il resto del loop per mobile — ogni slide viene condivisa separatamente
+          continue;
+
         } else {
-          if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); }
-          else { await downloadCanvas(exportCanvas, fileNumT); }
-        }
-      }
-      
-      // Media (solo se presente nella slide)
-      if (tp.fotoImg) {
-        var tpTr = tp.fotoTransform || { offsetX:0, offsetY:0, scale:1 };
-        var tpFilters = { brightness:100, contrast:100, saturate:100, sharpen:0 };
-        
-        if (tp._isVideo && tp.fotoImg._isVideo) {
-          // Video: registra come MP4 in real-time
-          document.getElementById("loadingText").textContent = "Registrazione video " + (i+1) + "…";
+          // Desktop con server locale: composita con grafica → MP4
           var tpVideo = tp.fotoImg;
           var renderFnTp = (function(slide, tr, filters, bdist) {
             return function() {
               exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
               drawImageCover(exportCtx, slide.fotoImg, 0, 0, exportCanvas.width, exportCanvas.height, tr, filters, 0, false);
-              renderTitoletti(exportCtx, exportCanvas, {
-                titolo: slide.testo, categoria: state.categoria, bottomDist: bdist
-              });
+              renderTitoletti(exportCtx, exportCanvas, { titolo: slide.testo, categoria: state.categoria, bottomDist: bdist });
             };
           })(tp, tpTr, tpFilters, tpBottomDist);
-          
-          var videoResult = await recordCanvasAsVideo(tpVideo, exportCanvas, renderFnTp, tpVideo.duration * 1000);
-          var mp4Blob = videoResult.blob;
-          var fileNumTVid = (i + 1) + "_con_video.mp4";
-          if (hasZip) {
-            folder.file(fileNumTVid, mp4Blob);
-          } else {
-            if (isMobile) { mobileImages.push(URL.createObjectURL(mp4Blob)); }
-            else { var aVid = document.createElement('a'); aVid.href = URL.createObjectURL(mp4Blob); aVid.download = fileNumTVid; aVid.click(); }
-          }
-        } else {
-          // Immagine: PNG composito
-          exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
-          drawImageCover(exportCtx, tp.fotoImg, 0, 0, exportCanvas.width, exportCanvas.height, tpTr, tpFilters, 0, false);
-          renderTitoletti(exportCtx, exportCanvas, {
-            titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist
-          });
-          var fileNumTImg = (i + 1) + "_con_immagine.png";
-          if (hasZip) {
-            folder.file(fileNumTImg, await canvasToBlob(exportCanvas));
-          } else {
-            if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); }
-            else { await downloadCanvas(exportCanvas, fileNumTImg); }
+
+          try {
+            var videoResult = await recordCanvasAsVideo(tpVideo, exportCanvas, renderFnTp, tpVideo.duration * 1000);
+            var mp4Blob = videoResult.blob;
+            var vidFname = (i+1) + "_con_video.mp4";
+            if (hasZip) { folder.file(vidFname, mp4Blob); }
+            else { saveAs(mp4Blob, vidFname); }
+          } catch(err) {
+            console.error("[titoletti video]", err);
+            showStatus("Errore export video: " + err.message, "error");
           }
         }
+
+      } else {
+        // IMMAGINE: PNG composito
+        exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+        drawImageCover(exportCtx, tp.fotoImg, 0, 0, exportCanvas.width, exportCanvas.height, tpTr, tpFilters, 0, false);
+        renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist });
+        var imgFname = (i+1) + "_con_immagine.png";
+        var imgBlob = await canvasToBlob(exportCanvas);
+        if (hasZip) { folder.file(imgFname, imgBlob); }
+        else if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); }
+        else { saveAs(imgBlob, imgFname); }
       }
     }
   
