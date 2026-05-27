@@ -4138,19 +4138,40 @@ var _esclusivaImgs = {};
   };
   Object.keys(map).forEach(function(k) {
     var img = new Image();
-    img.onload = function() { if (typeof render === "function") render(); };
+    img.onload = function() { console.log("[esclusiva] caricata:", k, img.naturalWidth+"x"+img.naturalHeight); if (typeof render === "function") render(); };
+    img.onerror = function() { console.error("[esclusiva] errore caricamento:", k); };
     img.src = map[k];
     _esclusivaImgs[k] = img;
   });
+  console.log("[esclusiva] immagini registrate:", Object.keys(_esclusivaImgs));
 })();
 
 // Disegna overlay "ESCLUSIVA ESSE" usando l'SVG originale (1080×1440 over canvas)
 function drawEsclusiva(ctx, posKey) {
   var img = _esclusivaImgs[posKey] || _esclusivaImgs["alto-destra"];
-  if (!img || !img.complete) return;
+  if (!img) return;
   var W = ctx.canvas ? ctx.canvas.width : 1080;
   var H = ctx.canvas ? ctx.canvas.height : 1440;
-  ctx.drawImage(img, 0, 0, W, H);
+  // Il SVG è 1080x1440 — scalalo proporzionalmente al canvas corrente
+  var scale = W / 1080;
+  try { ctx.drawImage(img, 0, 0, 1080 * scale, 1440 * scale); } catch(e) { console.warn('[esclusiva]', e); }
+}
+
+// Versione async per export — garantisce che l'immagine sia caricata
+function drawEsclusivaAsync(ctx, posKey) {
+  return new Promise(function(resolve) {
+    var img = _esclusivaImgs[posKey] || _esclusivaImgs["alto-destra"];
+    if (!img) { resolve(); return; }
+    var W = ctx.canvas ? ctx.canvas.width : 1080;
+    var H = ctx.canvas ? ctx.canvas.height : 1440;
+    if (img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, 0, 0, W, H);
+      resolve();
+    } else {
+      img.onload = function() { ctx.drawImage(img, 0, 0, W, H); resolve(); };
+      img.onerror = function() { resolve(); };
+    }
+  });
 }
 
 function drawFreccia(ctx, x, y, w, color) {
@@ -6307,6 +6328,18 @@ function getVideoExtension(mimeType) {
 }
 
 async function exportAll() {
+  // Precarica immagini esclusiva prima di iniziare l'export
+  await new Promise(function(resolve) {
+    var imgs = Object.values(_esclusivaImgs);
+    var pending = imgs.filter(function(img) { return !img.complete || !img.naturalWidth; });
+    if (pending.length === 0) { resolve(); return; }
+    var loaded = 0;
+    pending.forEach(function(img) {
+      img.addEventListener("load", function() { loaded++; if (loaded === pending.length) resolve(); }, { once: true });
+      img.addEventListener("error", function() { loaded++; if (loaded === pending.length) resolve(); }, { once: true });
+    });
+    setTimeout(resolve, 3000); // timeout sicurezza
+  });
   // Validazione in base al tipo
   if (state.tipo === "citazione") {
     if (state.slides.length === 0 || !state.slides[0].testo) {
@@ -6537,6 +6570,7 @@ async function exportAll() {
               fonteChi: citaz.fonteChi,
               fonteDove: citaz.fonteDove,
               variante: citaz.variante,
+              esclusiva: state.esclusiva || "nessuna",
               foto: citaz.fotoImg,
               fotoTransform: citaz.fotoTransform,
               fotoFilters: citaz.fotoFilters,
@@ -6569,6 +6603,7 @@ async function exportAll() {
           fonteChi: s.fonteChi,
           fonteDove: s.fonteDove,
           variante: s.variante,
+          esclusiva: state.esclusiva || "nessuna",
           foto: s.fotoImg,
           fotoTransform: s.fotoTransform,
           fotoFilters: s.fotoFilters,
