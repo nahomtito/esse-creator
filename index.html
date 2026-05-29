@@ -260,6 +260,11 @@ to   { opacity: 1; transform: translateY(0); }
 }
 .back-to-home:hover { color: var(--text); border-color: var(--border-hover); }
 
+@media (min-width: 769px) {
+  #saveLoadBar { display: none !important; }
+  .sb-header-save { display: flex !important; }
+}
+
 @media (max-width: 768px) {
   .home-screen { padding: 24px 16px; }
   .home-header { margin-bottom: 28px; gap: 12px; }
@@ -1241,6 +1246,7 @@ input[type="file"] { display: none; }
   }
 
   /* iOS safe area — evita che la status bar copra il canvas */
+  .mobile-save-bar { display: flex !important; }
   .preview-area {
     order: 1;
     width: 100%;
@@ -1686,8 +1692,10 @@ input[type="file"] { display: none; }
       <div class="sb-sub">Magazine</div>
     </div>
     <button class="back-to-home" onclick="backToHome()" title="Torna alla home">← Home</button>
-    <button onclick="saveProjectFile()" title="Salva progetto" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;margin-left:6px;">&#x1F4BE;</button>
-    <label title="Apri progetto" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;margin-left:4px;">&#x1F4C2;<input type="file" accept=".esse" style="display:none;" onchange="loadProjectFile(this.files[0]);this.value='';"></label>
+    <div class="sb-header-save" style="display:flex;gap:6px;margin-left:6px;">
+      <button onclick="saveProjectFile()" title="Salva progetto" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;">&#x1F4BE;</button>
+      <label title="Apri progetto" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;">&#x1F4C2;<input type="file" accept=".esse" style="display:none;" onchange="loadProjectFile(this.files[0]);this.value='';"></label>
+    </div>
     <button class="btn-primary-mobile" onclick="exportAll()" style="display:none;margin-left:8px;">↓ Esporta</button>
   </div>
 
@@ -1864,6 +1872,11 @@ input[type="file"] { display: none; }
       <div class="tb-hint" id="dragHint">Trascina per spostare · Rotella o pinch per zoom</div>
     </div>
     <button id="btnFullPreview" onclick="openFullPreview()" class="btn-full-preview">⛶</button>
+  </div>
+  <!-- Bottoni save/load — visibili sotto il canvas su mobile, nell'header su desktop -->
+  <div id="saveLoadBar" style="display:none;justify-content:center;gap:10px;padding:8px 16px;" class="mobile-save-bar">
+    <button onclick="saveProjectFile()" style="flex:1;max-width:160px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;">&#x1F4BE; Salva progetto</button>
+    <label style="flex:1;max-width:160px;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;">&#x1F4C2; Apri progetto<input type="file" accept=".esse" style="display:none;" onchange="loadProjectFile(this.files[0]);this.value='';"></label>
   </div>
 </div>
 
@@ -5572,6 +5585,16 @@ function openFullPreview() {
   _fpOpen = true;
   _fpRender();
   document.getElementById("fullPreviewOverlay").style.display = "flex";
+  // Mostra slider posizione solo per titoletti
+  var fpPos = document.getElementById("fpPosRow");
+  if (fpPos) {
+    fpPos.style.display = (state.tipo === "titoletti") ? "block" : "none";
+    // Sincronizza valore con sidebar
+    var titIdx = state.currentPreview - 1; if (titIdx < 0) titIdx = 0;
+    var titSlide = state.slides[titIdx];
+    var fpSlider = document.getElementById("fpPosSlider");
+    if (fpSlider && titSlide) fpSlider.value = titSlide.bottomDist || 460;
+  }
   document.body.style.overflow = "hidden";
 }
 
@@ -6548,7 +6571,16 @@ function onTitolettiPosChange(val) {
   var maxVal = _getTitolettiMaxDist(tIdx);
   var v = Math.max(380, Math.min(maxVal, parseInt(val)));
   if (state.slides[tIdx]) state.slides[tIdx].bottomDist = v;
+  // Sincronizza entrambi gli slider
+  var s1 = document.getElementById("titolettiPosSlider");
+  var s2 = document.getElementById("fpPosSlider");
+  if (s1) s1.value = v;
+  if (s2) s2.value = v;
   render();
+  // Aggiorna anche il fullscreen preview se aperto
+  if (typeof _fpOpen !== 'undefined' && _fpOpen && typeof _fpRender === 'function') {
+    _fpRender();
+  }
 }
 
 // Render titoletti CON immagine sotto (canvas 1080x1920)
@@ -7537,6 +7569,17 @@ document.fonts.ready.then(function() {
     <button onclick="closeFullPreview()" style="background:rgba(255,255,255,0.15);border:none;color:#fff;border-radius:50%;width:34px;height:34px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">×</button>
   </div>
   <canvas id="fullPreviewCanvas" style="touch-action:none;display:block;"></canvas>
+  
+  <!-- Slider posizione titoletti — visibile solo nel template titoletti -->
+  <div id="fpPosRow" style="display:none;position:absolute;bottom:calc(70px + env(safe-area-inset-bottom));left:16px;right:16px;background:rgba(0,0,0,0.65);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:14px;padding:10px 16px;z-index:3;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="color:rgba(255,255,255,0.5);font-size:10px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;flex-shrink:0;">Posizione</span>
+      <input type="range" id="fpPosSlider" min="380" max="1137" value="460"
+        oninput="onTitolettiPosChange(this.value); document.getElementById('titolettiPosSlider').value=this.value;"
+        style="flex:1;accent-color:#FBF17A;">
+    </div>
+  </div>
+
   <div style="position:absolute;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:20px;padding:7px 14px;color:rgba(255,255,255,0.6);font-size:11px;white-space:nowrap;pointer-events:none;">
     Trascina · Pinch per zoom
   </div>
