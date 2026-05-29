@@ -262,7 +262,6 @@ to   { opacity: 1; transform: translateY(0); }
 
 @media (min-width: 769px) {
   #saveLoadBar { display: none !important; }
-  .sb-header-save { display: flex !important; }
 }
 
 @media (max-width: 768px) {
@@ -1692,10 +1691,7 @@ input[type="file"] { display: none; }
       <div class="sb-sub">Magazine</div>
     </div>
     <button class="back-to-home" onclick="backToHome()" title="Torna alla home">← Home</button>
-    <div class="sb-header-save" style="display:flex;gap:6px;margin-left:6px;">
-      <button onclick="saveProjectFile()" title="Salva progetto" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;">&#x1F4BE;</button>
-      <label title="Apri progetto" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;">&#x1F4C2;<input type="file" accept=".esse" style="display:none;" onchange="loadProjectFile(this.files[0]);this.value='';"></label>
-    </div>
+
     <button class="btn-primary-mobile" onclick="exportAll()" style="display:none;margin-left:8px;">↓ Esporta</button>
   </div>
 
@@ -5593,7 +5589,11 @@ function openFullPreview() {
     var titIdx = state.currentPreview - 1; if (titIdx < 0) titIdx = 0;
     var titSlide = state.slides[titIdx];
     var fpSlider = document.getElementById("fpPosSlider");
-    if (fpSlider && titSlide) fpSlider.value = titSlide.bottomDist || 460;
+    if (fpSlider && titSlide) {
+      var fpMax = _getTitolettiMaxDist(titIdx);
+      fpSlider.max = fpMax;
+      fpSlider.value = Math.min(titSlide.bottomDist || 460, fpMax);
+    }
   }
   document.body.style.overflow = "hidden";
 }
@@ -6533,7 +6533,7 @@ function _getTitolettiMaxDist(tIdx) {
   var slide = state.slides[tIdx];
   if (!slide) return 1137;
   var nRighe = 1;
-  var cvs = document.getElementById("canvas");
+  var cvs = document.getElementById("mainCanvas") || document.getElementById("canvas");
   if (cvs && typeof wrapTextSimple === "function") {
     var ctx2 = cvs.getContext("2d");
     ctx2.font = "800 95px Marcin Antique, sans-serif";
@@ -6555,14 +6555,23 @@ function _getTitolettiMaxDist(tIdx) {
 
 function updateTitolettiSliderMax() {
   var tIdx = state.currentPreview - 1; if (tIdx < 0) tIdx = 0;
-  var slider = document.getElementById('titolettiPosSlider');
-  if (!slider) return;
   var maxVal = _getTitolettiMaxDist(tIdx);
-  slider.max = maxVal;
-  // Se il valore corrente supera il nuovo max, clampalo
-  if (parseInt(slider.value) > maxVal) {
-    slider.value = maxVal;
-    onTitolettiPosChange(maxVal);
+  // Aggiorna entrambi gli slider
+  var s1 = document.getElementById('titolettiPosSlider');
+  var s2 = document.getElementById('fpPosSlider');
+  [s1, s2].forEach(function(sl) {
+    if (!sl) return;
+    sl.max = maxVal;
+    if (parseInt(sl.value) > maxVal) {
+      sl.value = maxVal;
+    }
+  });
+  // Aggiorna anche il bottomDist nella slide se supera il nuovo max
+  var slide = state.slides[tIdx];
+  if (slide && slide.bottomDist > maxVal) {
+    slide.bottomDist = maxVal;
+    render();
+    if (typeof _fpOpen !== 'undefined' && _fpOpen && typeof _fpRender === 'function') _fpRender();
   }
 }
 
