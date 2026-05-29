@@ -1600,7 +1600,10 @@ input[type="file"] { display: none; }
       <div class="home-logo"></div>
       <div style="flex:1;">
         <div class="home-title">Magazine Creator</div>
-        <div class="home-sub">Scegli il tipo di contenuto da creare</div>
+        <div class="home-sub" style="display:flex;align-items:center;gap:12px;">
+          <span>Scegli il tipo di contenuto da creare</span>
+
+        </div>
       </div>
     </div>
     <!-- SEZIONE TEMPLATE (default) -->
@@ -1683,6 +1686,8 @@ input[type="file"] { display: none; }
       <div class="sb-sub">Magazine</div>
     </div>
     <button class="back-to-home" onclick="backToHome()" title="Torna alla home">← Home</button>
+    <button onclick="saveProjectFile()" title="Salva progetto" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;margin-left:6px;">&#x1F4BE;</button>
+    <label title="Apri progetto" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;margin-left:4px;">&#x1F4C2;<input type="file" accept=".esse" style="display:none;" onchange="loadProjectFile(this.files[0]);this.value='';"></label>
     <button class="btn-primary-mobile" onclick="exportAll()" style="display:none;margin-left:8px;">↓ Esporta</button>
   </div>
 
@@ -1803,9 +1808,9 @@ input[type="file"] { display: none; }
           </button>
           <input type="file" id="titolettiImgInput" accept="image/*,video/*" style="display:none;" onchange="handleTitolettiImg(this)">
           <!-- Slider posizione grafica -->
-          <div id="titolettiPosRow" style="display:none;align-items:center;gap:8px;">
+          <div id="titolettiPosRow" style="display:flex;align-items:center;gap:8px;">
             <span style="color:var(--text2);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;flex-shrink:0;">Posizione</span>
-            <input type="range" id="titolettiPosSlider" min="100" max="800" value="460" oninput="onTitolettiPosChange(this.value)" style="flex:1;accent-color:var(--accent);">
+            <input type="range" id="titolettiPosSlider" min="380" max="1137" value="460" oninput="onTitolettiPosChange(this.value)" style="flex:1;accent-color:var(--accent);">
           </div>
           <div style="font-size:11px;color:var(--text2);line-height:1.4;">
             Export: PNG grafica trasparente + PNG/MP4 con media
@@ -1915,6 +1920,398 @@ var state = {
   slides: [],
   currentPreview: 0
 };
+
+
+// ============================================================
+// SALVATAGGIO AUTOMATICO PROGETTO (IndexedDB — supporta immagini e video)
+// ============================================================
+var _saveTimeout = null;
+var _db = null;
+
+// Apri database
+function _openDB() {
+  return new Promise(function(resolve, reject) {
+    if (_db) { resolve(_db); return; }
+    var req = indexedDB.open('esse_magazine', 2);
+    req.onupgradeneeded = function(e) {
+      var db = e.target.result;
+      if (!db.objectStoreNames.contains('project')) db.createObjectStore('project');
+      if (!db.objectStoreNames.contains('images'))  db.createObjectStore('images');
+    };
+    req.onsuccess = function(e) { _db = e.target.result; resolve(_db); };
+    req.onerror   = function(e) { reject(e); };
+  });
+}
+
+function _dbPut(store, key, value) {
+  return _openDB().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).put(value, key);
+      tx.oncomplete = resolve; tx.onerror = reject;
+    });
+  });
+}
+
+function _dbGet(store, key) {
+  return _openDB().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction(store, 'readonly');
+      var req = tx.objectStore(store).get(key);
+      req.onsuccess = function() { resolve(req.result); };
+      req.onerror = reject;
+    });
+  });
+}
+
+function _dbClear(store) {
+  return _openDB().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).clear();
+      tx.oncomplete = resolve; tx.onerror = reject;
+    });
+  });
+}
+
+// Converte img/video element in Blob
+function _mediaToBlob(el) {
+  return new Promise(function(resolve) {
+    if (!el) { resolve(null); return; }
+    if (el._isVideo && el.src) {
+      fetch(el.src).then(function(r) { return r.blob(); }).then(resolve).catch(function() { resolve(null); });
+      return;
+    }
+    if (el.src && el.src.startsWith('blob:')) {
+      fetch(el.src).then(function(r) { return r.blob(); }).then(resolve).catch(function() { resolve(null); });
+      return;
+    }
+    // Image: disegna su canvas
+    try {
+      var cvs = document.createElement('canvas');
+      cvs.width = el.naturalWidth || el.width || 1;
+      cvs.height = el.naturalHeight || el.height || 1;
+      cvs.getContext('2d').drawImage(el, 0, 0);
+      cvs.toBlob(resolve, 'image/jpeg', 0.92);
+    } catch(e) { resolve(null); }
+  });
+}
+
+// Ricostruisce img/video element da Blob
+function _blobToMedia(blob, isVideo, transform, filters, blur) {
+  return new Promise(function(resolve) {
+    if (!blob) { resolve(null); return; }
+    var url = URL.createObjectURL(blob);
+    if (isVideo) {
+      var vid = document.createElement('video');
+      vid.src = url; vid.muted = true; vid.loop = true; vid.playsInline = true;
+      vid._isVideo = true;
+      vid.onloadedmetadata = function() {
+        vid.naturalWidth = vid.videoWidth; vid.naturalHeight = vid.videoHeight;
+        vid.play().catch(function(){});
+        resolve({ el: vid, transform: transform, filters: filters, blur: blur });
+      };
+      vid.onerror = function() { resolve(null); };
+    } else {
+      var img = new Image();
+      img.onload = function() { resolve({ el: img, transform: transform, filters: filters, blur: blur }); };
+      img.onerror = function() { resolve(null); };
+      img.src = url;
+    }
+  });
+}
+
+async function saveProject() {
+  try {
+    // Salva metadati (testo, impostazioni) in IndexedDB
+    var meta = {
+      tipo: state.tipo, categoria: state.categoria, titolo: state.titolo,
+      esclusiva: state.esclusiva, freccia: state.freccia,
+      varianteApertura: state.varianteApertura, currentPreview: state.currentPreview,
+      fotoTransform: state.fotoTransform, fotoFilters: state.fotoFilters,
+      fotoBlur: state.fotoBlur, blackBackground: state.blackBackground,
+      slides: (state.slides||[]).map(function(s,i) {
+        return {
+          i:i, testo:s.testo, fonteChi:s.fonteChi, fonteDove:s.fonteDove,
+          variante:s.variante, align:s.align, textCase:s.textCase,
+          blackBackground:s.blackBackground, ultima:s.ultima, esclusiva:s.esclusiva,
+          bottomDist:s.bottomDist, fotoTransform:s.fotoTransform,
+          fotoFilters:s.fotoFilters, fotoBlur:s.fotoBlur,
+          hasFoto: !!(s.fotoImg), isVideo: !!(s.fotoImg && s.fotoImg._isVideo),
+          hasFotos: !!(s.fotos && s.fotos.length)
+        };
+      }),
+      hasFoto: !!(state.fotoImg), isVideo: !!(state.fotoImg && state.fotoImg._isVideo),
+      hasFotos: !!(state.fotos && state.fotos.length)
+    };
+    await _dbPut('project', 'meta', meta);
+
+    // Salva immagine principale
+    if (state.fotoImg) {
+      var blob = await _mediaToBlob(state.fotoImg);
+      if (blob) await _dbPut('images', 'main', { blob:blob, isVideo: !!(state.fotoImg._isVideo) });
+    } else {
+      await _dbPut('images', 'main', null);
+    }
+
+    // Salva foto multipla (fotos array)
+    if (state.fotos && state.fotos.length) {
+      for (var fi = 0; fi < state.fotos.length; fi++) {
+        var fblob = await _mediaToBlob(state.fotos[fi].img);
+        if (fblob) await _dbPut('images', 'fotos_' + fi, { blob:fblob, transform:state.fotos[fi].transform });
+      }
+    }
+
+    // Salva immagini delle slide
+    for (var i = 0; i < (state.slides||[]).length; i++) {
+      var s = state.slides[i];
+      if (s.fotoImg) {
+        var sblob = await _mediaToBlob(s.fotoImg);
+        if (sblob) await _dbPut('images', 'slide_' + i, { blob:sblob, isVideo: !!(s.fotoImg._isVideo) });
+      } else {
+        await _dbPut('images', 'slide_' + i, null);
+      }
+    }
+
+    console.log('[esse] Progetto salvato');
+  } catch(e) { console.warn('[save]', e); }
+}
+
+async function loadProject() {
+  try {
+    var meta = await _dbGet('project', 'meta');
+    if (!meta || !meta.tipo) return false;
+
+    // Ripristina state base
+    state.tipo = meta.tipo; state.categoria = meta.categoria; state.titolo = meta.titolo;
+    state.esclusiva = meta.esclusiva || 'nessuna'; state.freccia = meta.freccia !== false;
+    state.varianteApertura = meta.varianteApertura || '1';
+    state.currentPreview = meta.currentPreview || 1;
+    state.fotoTransform = meta.fotoTransform || {offsetX:0,offsetY:0,scale:1};
+    state.fotoFilters = meta.fotoFilters || {brightness:100,contrast:100,saturate:100,sharpen:0};
+    state.fotoBlur = meta.fotoBlur || 0; state.blackBackground = meta.blackBackground || false;
+
+    // Ripristina slide (testo)
+    state.slides = (meta.slides||[]).map(function(s) {
+      return {
+        testo:s.testo||'', fonteChi:s.fonteChi||'', fonteDove:s.fonteDove||'',
+        variante:s.variante||'1', align:s.align||'left', textCase:s.textCase||'normal',
+        blackBackground:s.blackBackground||false, ultima:s.ultima||false,
+        esclusiva:s.esclusiva||'nessuna', bottomDist:s.bottomDist||460,
+        fotoTransform:s.fotoTransform||{offsetX:0,offsetY:0,scale:1},
+        fotoFilters:s.fotoFilters||{brightness:100,contrast:100,saturate:100,sharpen:0},
+        fotoBlur:s.fotoBlur||0, foto:null, fotoImg:null, fotos:[], fotosExtra:[]
+      };
+    });
+
+    // Ripristina immagine principale
+    if (meta.hasFoto) {
+      var mainData = await _dbGet('images', 'main');
+      if (mainData && mainData.blob) {
+        var mainRes = await _blobToMedia(mainData.blob, mainData.isVideo, state.fotoTransform, state.fotoFilters, state.fotoBlur);
+        if (mainRes) { state.fotoImg = mainRes.el; }
+      }
+    }
+
+    // Ripristina immagini slide
+    for (var i = 0; i < state.slides.length; i++) {
+      if (meta.slides[i] && meta.slides[i].hasFoto) {
+        var sd = await _dbGet('images', 'slide_' + i);
+        if (sd && sd.blob) {
+          var sr = await _blobToMedia(sd.blob, sd.isVideo, state.slides[i].fotoTransform, state.slides[i].fotoFilters, state.slides[i].fotoBlur);
+          if (sr) state.slides[i].fotoImg = sr.el;
+        }
+      }
+    }
+
+    console.log('[esse] Progetto ripristinato:', state.tipo, state.slides.length, 'slide');
+    return true;
+  } catch(e) { console.warn('[load]', e); return false; }
+}
+
+async function clearProject() {
+  try {
+    await _dbClear('project'); await _dbClear('images');
+    localStorage.removeItem('esse_project');
+  } catch(e) {}
+}
+
+function autoSave() {} // disabilitato
+
+// Converti img/video element in base64
+function _mediaToBase64(el) {
+  return new Promise(function(resolve) {
+    if (!el) { resolve(null); return; }
+    if (el._isVideo && el.src) {
+      fetch(el.src).then(function(r){ return r.blob(); }).then(function(blob){
+        var reader = new FileReader();
+        reader.onload = function(e){ resolve({ data: e.target.result, isVideo: true }); };
+        reader.readAsDataURL(blob);
+      }).catch(function(){ resolve(null); });
+      return;
+    }
+    try {
+      var maxW = 2048, maxH = 2048;
+      var sw = el.naturalWidth || el.width || 1;
+      var sh = el.naturalHeight || el.height || 1;
+      var scale = Math.min(1, maxW / sw, maxH / sh);
+      var cvs = document.createElement('canvas');
+      cvs.width = Math.round(sw * scale);
+      cvs.height = Math.round(sh * scale);
+      cvs.getContext('2d').drawImage(el, 0, 0, cvs.width, cvs.height);
+      resolve({ data: cvs.toDataURL('image/jpeg', 0.88), isVideo: false });
+    } catch(e) { resolve(null); }
+  });
+}
+
+// Ricostruisce img/video da base64
+function _base64ToMedia(obj) {
+  return new Promise(function(resolve) {
+    if (!obj || !obj.data) { resolve(null); return; }
+    if (obj.isVideo) {
+      var video = document.createElement('video');
+      video.src = obj.data; video.muted = true; video.loop = true; video.playsInline = true;
+      video._isVideo = true;
+      video.onloadedmetadata = function() {
+        video.naturalWidth = video.videoWidth; video.naturalHeight = video.videoHeight;
+        video.play().catch(function(){});
+        resolve(video);
+      };
+      video.onerror = function() { resolve(null); };
+      video.load();
+    } else {
+      var img = new Image();
+      img.onload = function() { resolve(img); };
+      img.onerror = function() { resolve(null); };
+      img.src = obj.data;
+    }
+  });
+}
+
+async function saveProjectFile() {
+  showLoading('Preparazione file progetto...');
+  try {
+    var proj = {
+      v: 1, tipo: state.tipo, categoria: state.categoria, titolo: state.titolo,
+      esclusiva: state.esclusiva, freccia: state.freccia,
+      varianteApertura: state.varianteApertura, currentPreview: state.currentPreview,
+      fotoTransform: state.fotoTransform, fotoFilters: state.fotoFilters,
+      fotoBlur: state.fotoBlur, blackBackground: state.blackBackground,
+      fotoData: await _mediaToBase64(state.fotoImg),
+      fotosData: [], slides: []
+    };
+    for (var fi = 0; fi < (state.fotos||[]).length; fi++) {
+      var fo = state.fotos[fi];
+      proj.fotosData.push({ d: await _mediaToBase64(fo.img), t: fo.transform, f: fo.filters });
+    }
+    for (var i = 0; i < (state.slides||[]).length; i++) {
+      var s = state.slides[i];
+      // Salva fotosExtra (multi-immagine)
+      var fotosExtraData = [];
+      for (var fe = 0; fe < (s.fotosExtra||[]).length; fe++) {
+        var feObj = s.fotosExtra[fe];
+        if (feObj && feObj.img) {
+          fotosExtraData.push({
+            d: await _mediaToBase64(feObj.img),
+            t: feObj.transform, f: feObj.filters, b: feObj.blur
+          });
+        }
+      }
+      // Salva cerchioImg
+      var cerchioData = null;
+      if (s.cerchioImg && s.cerchioImg.img) {
+        cerchioData = { d: await _mediaToBase64(s.cerchioImg.img), t: s.cerchioImg.transform };
+      }
+      proj.slides.push({
+        testo: s.testo, fonteChi: s.fonteChi, fonteDove: s.fonteDove,
+        variante: s.variante, align: s.align, textCase: s.textCase,
+        blackBackground: s.blackBackground, ultima: s.ultima, esclusiva: s.esclusiva,
+        bottomDist: s.bottomDist, fotoTransform: s.fotoTransform,
+        fotoFilters: s.fotoFilters, fotoBlur: s.fotoBlur,
+        varianteTitoletti: s.varianteTitoletti, alignTitoletti: s.alignTitoletti,
+        fotoData: await _mediaToBase64(s.fotoImg),
+        fotosExtraData: fotosExtraData,
+        cerchioData: cerchioData,
+        cerchioPos: s.cerchioPos || 'destra'
+      });
+    }
+    hideLoading();
+    var blob = new Blob([JSON.stringify(proj)], { type: 'application/json' });
+    var name = 'esse-' + (state.categoria||'progetto').toLowerCase().replace(/[^a-z0-9]/g,'-') + '-' + new Date().toISOString().slice(0,10) + '.esse';
+    saveAs(blob, name);
+    showStatus('Progetto salvato: ' + name, 'success');
+  } catch(e) {
+    hideLoading();
+    console.error('[saveProjectFile]', e);
+    showStatus('Errore salvataggio: ' + e.message, 'error');
+  }
+}
+
+async function loadProjectFile(file) {
+  if (!file) return;
+  showLoading('Caricamento progetto...');
+  try {
+    var text = await file.text();
+    var proj = JSON.parse(text);
+    if (!proj || proj.v !== 1) throw new Error('File .esse non valido');
+    state.tipo = proj.tipo; state.categoria = proj.categoria; state.titolo = proj.titolo||'';
+    state.esclusiva = proj.esclusiva||'nessuna'; state.freccia = proj.freccia !== false;
+    state.varianteApertura = proj.varianteApertura||'1'; state.currentPreview = proj.currentPreview||1;
+    state.fotoTransform = proj.fotoTransform||{offsetX:0,offsetY:0,scale:1};
+    state.fotoFilters = proj.fotoFilters||{brightness:100,contrast:100,saturate:100,sharpen:0};
+    state.fotoBlur = proj.fotoBlur||0; state.blackBackground = proj.blackBackground||false;
+    state.fotoImg = proj.fotoData ? await _base64ToMedia(proj.fotoData) : null;
+    state.fotos = [];
+    for (var fi = 0; fi < (proj.fotosData||[]).length; fi++) {
+      var fo = proj.fotosData[fi];
+      var fimg = fo && fo.d ? await _base64ToMedia(fo.d) : null;
+      if (fimg) state.fotos.push({ img: fimg, transform: fo.t, filters: fo.f });
+    }
+    state.slides = [];
+    for (var i = 0; i < (proj.slides||[]).length; i++) {
+      var s = proj.slides[i];
+      // Ripristina fotosExtra
+      var restoredFotosExtra = [];
+      for (var fe = 0; fe < (s.fotosExtraData||[]).length; fe++) {
+        var feD = s.fotosExtraData[fe];
+        if (feD && feD.d) {
+          var feImg = await _base64ToMedia(feD.d);
+          if (feImg) restoredFotosExtra.push({ img: feImg, transform: feD.t, filters: feD.f, blur: feD.b });
+        }
+      }
+      // Ripristina cerchioImg
+      var restoredCerchio = null;
+      if (s.cerchioData && s.cerchioData.d) {
+        var cImg = await _base64ToMedia(s.cerchioData.d);
+        if (cImg) restoredCerchio = { img: cImg, src: cImg.src, transform: s.cerchioData.t };
+      }
+      state.slides.push({
+        testo: s.testo||'', fonteChi: s.fonteChi||'', fonteDove: s.fonteDove||'',
+        variante: s.variante||'1', align: s.align||'left', textCase: s.textCase||'normal',
+        blackBackground: s.blackBackground||false, ultima: s.ultima||false,
+        esclusiva: s.esclusiva||'nessuna', bottomDist: s.bottomDist||460,
+        fotoTransform: s.fotoTransform||{offsetX:0,offsetY:0,scale:1},
+        fotoFilters: s.fotoFilters||{brightness:100,contrast:100,saturate:100,sharpen:0},
+        fotoBlur: s.fotoBlur||0, varianteTitoletti: s.varianteTitoletti||'1',
+        alignTitoletti: s.alignTitoletti||'left',
+        foto: null, fotoImg: s.fotoData ? await _base64ToMedia(s.fotoData) : null,
+        fotosExtra: restoredFotosExtra,
+        cerchioImg: restoredCerchio, cerchioPos: s.cerchioPos||'destra'
+      });
+    }
+    hideLoading();
+    document.getElementById('homeScreen').style.display = 'none';
+    document.getElementById('editorWrap').style.display = 'flex';
+    setTipo(state.tipo);
+    rebuildPreviewTabs(); showOnlyActiveCard(); updateToolbarVisibility(); render();
+    showStatus('Progetto caricato', 'success');
+  } catch(e) {
+    hideLoading();
+    console.error('[loadProjectFile]', e);
+    showStatus('Errore apertura: ' + e.message, 'error');
+  }
+}
+
 
 // ============================================================
 // SETUP UI
@@ -2388,10 +2785,14 @@ function renderTitolettiList() {
           '<button class="slide-del" onclick="removeSlide(' + i + ');renderTitolettiList()" title="Rimuovi">×</button>' 
           : '') +
       '</div>' +
-      
+      _buildTitolettiVarButtons(i, slide) +
       '<div class="cit-field-label">Titolo</div>' +
       '<textarea id="titTextArea-' + i + '" placeholder="LOREM IPSUM DOLOR SIT AMET" rows="4" oninput="updateTitolettoText(' + i + ', this)">' + (slide.testo || '') + '</textarea>' +
-      '<div id="titHint-' + i + '" style="font-size:10px;color:var(--text3);margin:-4px 0 8px 2px;letter-spacing:0.04em;">Max 4 righe — sfondo trasparente</div>';
+      '<div id="titHint-' + i + '" style="font-size:10px;color:var(--text3);margin:-4px 0 8px 2px;letter-spacing:0.04em;">Max 4 righe — sfondo trasparente</div>' +
+      '<div style="display:flex;gap:8px;margin-top:8px;">' +
+      '<button onclick="setTitolettiAlign(' + i + ',\'left\')" style="flex:1;padding:6px 0;border-radius:8px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;border:2px solid ' + (slide.alignTitoletti === 'center' ? 'rgba(255,255,255,0.15)' : '#FBF17A') + ';background:' + (slide.alignTitoletti === 'center' ? 'transparent' : '#FBF17A') + ';color:' + (slide.alignTitoletti === 'center' ? 'rgba(255,255,255,0.4)' : '#111') + ';">← Sinistra</button>' +
+      '<button onclick="setTitolettiAlign(' + i + ',\'center\')" style="flex:1;padding:6px 0;border-radius:8px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;border:2px solid ' + (slide.alignTitoletti === 'center' ? '#FBF17A' : 'rgba(255,255,255,0.15)') + ';background:' + (slide.alignTitoletti === 'center' ? '#FBF17A' : 'transparent') + ';color:' + (slide.alignTitoletti === 'center' ? '#111' : 'rgba(255,255,255,0.4)') + ';">Centro</button>' +
+      '</div>';
     
     list.appendChild(div);
   });
@@ -2402,6 +2803,8 @@ function renderTitolettiList() {
 // Funzione specifica per il testo dei titoletti: blocca a 4 righe e mostra warning
 function updateTitolettoText(i, textareaEl) {
   var newText = textareaEl.value;
+  // Aggiorna i limiti dello slider in base al nuovo numero di righe
+  setTimeout(updateTitolettiSliderMax, 50);
   
   // Simulo il wrap per contare le righe che risulterebbero
   var canvas = document.getElementById("canvas");
@@ -2692,6 +3095,7 @@ function render() {
   } catch(e) {
     console.error("Render error:", e);
   }
+  autoSave();
 }
 
 function _doRender() {
@@ -2709,6 +3113,7 @@ function _doRender() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // Aggiorna UI in base alla slide corrente
+      setTimeout(updateTitolettiSliderMax, 0);
       var _titHasImg = !!(titPost.fotoImg);
       _titolettiImg = titPost.fotoImg || null;
       _tcShowTitolettiMediaUI(_titHasImg);
@@ -2732,19 +3137,17 @@ function _doRender() {
         drawImageCover(ctx, _titFotoImg, 0, 0, canvas.width, canvas.height,
           _titFotoTr, { brightness:100, contrast:100, saturate:100, sharpen:0 }, 0, false);
       } else {
-        // Usa checkerboard cached per non ricalcolarla ogni frame
-        if (!_tcCheckerCache || _tcCheckerCache.width !== canvas.width) {
-          _tcCheckerCache = document.createElement('canvas');
-          _tcCheckerCache.width = canvas.width; _tcCheckerCache.height = canvas.height;
-          drawTransparencyCheckerboard(_tcCheckerCache.getContext('2d'), _tcCheckerCache);
-        }
-        ctx.drawImage(_tcCheckerCache, 0, 0);
+        // Sfondo scuro per vedere la grafica — il PNG esportato sarà trasparente
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
       
       renderTitoletti(ctx, canvas, {
         titolo: titPost.testo || "LOREM IPSUM DOLOR SIT AMET, CONSECTETUER ADIPISCING ELIT, SED DIAM",
         categoria: state.categoria,
-        bottomDist: titPost.bottomDist || 460
+        bottomDist: titPost.bottomDist || 460,
+        varianteTitoletti: titPost.varianteTitoletti || "1",
+        alignTitoletti: titPost.alignTitoletti || "left"
       });
     }
     return;
@@ -3768,6 +4171,7 @@ function renderTitoletti(ctx, canvas, data) {
   var LOGO_H = LOGO_W / 1.9822; // aspect ratio reale del logo = ~116px
   var LOGO_GAP = 30;
   var BOTTOM_DIST = (data && data.bottomDist !== undefined) ? parseInt(data.bottomDist) : 460;
+  // Clamp dinamico: calcolato DOPO aver wrappato il testo (sotto)
   
   var FONT_SIZE = 95;
   var LINE_HEIGHT = 84;   // distanza tra baseline riga N e riga N+1 (interlinea)
@@ -3802,7 +4206,12 @@ function renderTitoletti(ctx, canvas, data) {
   }
   if (lines.length > MAX_LINES) lines = lines.slice(0, MAX_LINES);
   if (lines.length === 0) lines = [""];
-  
+
+  // Clamp BOTTOM_DIST: garantisce 250px margine top (logo) e 380px margine bottom (tag)
+  var _catH2 = CAT_FONT_SIZE + 12;
+  var _maxBD = H - 250 - Math.round(LOGO_W / 1.9822) - LOGO_GAP - (lines.length - 1) * LINE_HEIGHT - BOX_HEIGHT - _catH2;
+  BOTTOM_DIST = Math.max(380, Math.min(_maxBD, BOTTOM_DIST));
+
   // === CATEGORIA BOX (in basso) ===
   var catBoxHeight = CAT_FONT_SIZE + 12;
   var catBoxBottomY = H - BOTTOM_DIST;
@@ -3817,32 +4226,57 @@ function renderTitoletti(ctx, canvas, data) {
   var logoTopY = logoBottomY - LOGO_H;
   
   // === DISEGNO ===
-  
-  // 1) LOGO ESSE (aspect ratio corretto, non più tagliato)
+  var titVariante = (data && data.varianteTitoletti) ? data.varianteTitoletti : "1";
+  var titAlign    = (data && data.alignTitoletti)    ? data.alignTitoletti    : "left";
+
+  // 1) LOGO ESSE
   if (esseLogoReady && esseLogo) {
-    ctx.drawImage(esseLogo, LEFT_PAD, logoTopY, LOGO_W, LOGO_H);
+    var logoX = (titAlign === "center") ? Math.round((W - LOGO_W) / 2) : LEFT_PAD;
+    ctx.drawImage(esseLogo, logoX, logoTopY, LOGO_W, LOGO_H);
   }
   
-  // 2) BOX TITOLO GIALLO (un box per ogni riga, fit-to-text)
-  ctx.fillStyle = "#FBF17A";
+  // 2) BOX TITOLO (variante 1=giallo, variante 2=scotch semi-trasparente)
   ctx.font = "800 " + FONT_SIZE + "px 'Marcin Antique', sans-serif";
-  
-  var lineWidths = lines.map(function(line) {
-    return ctx.measureText(line).width;
-  });
-  
+  var lineWidths = lines.map(function(line) { return ctx.measureText(line).width; });
   for (var i = 0; i < lines.length; i++) {
     var lineY = titleBoxTopY + i * LINE_HEIGHT;
     var boxW = Math.min(lineWidths[i] + INNER_PAD_X * 2, W - LEFT_PAD - SAFE_RIGHT);
-    ctx.fillRect(LEFT_PAD, lineY, boxW, BOX_HEIGHT);
+    var boxX = (titAlign === "center") ? Math.round((W - boxW) / 2) : LEFT_PAD;
+    if (titVariante === "2") {
+      ctx.save();
+      var sx = boxX, sy = lineY, sw = boxW, sh = BOX_HEIGHT;
+      ctx.fillStyle = "rgba(200,220,235,0.18)"; ctx.fillRect(sx,sy,sw,sh);
+      ctx.fillStyle = "rgba(255,255,255,0.6)";  ctx.fillRect(sx,sy,sw,2);
+      ctx.fillStyle = "rgba(255,255,255,0.3)";  ctx.fillRect(sx,sy+sh-2,sw,2);
+      ctx.fillStyle = "rgba(255,255,255,0.1)";
+      ctx.beginPath(); ctx.moveTo(sx+sw*0.1,sy); ctx.lineTo(sx+sw*0.35,sy);
+      ctx.lineTo(sx+sw*0.25,sy+sh); ctx.lineTo(sx,sy+sh); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,0.2)"; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(sx+sw*0.42,sy+sh*0.2); ctx.lineTo(sx+sw*0.48,sy+sh*0.8); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx+sw*0.65,sy+sh*0.1); ctx.lineTo(sx+sw*0.67,sy+sh*0.65); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx+sw*0.78,sy+sh*0.3); ctx.lineTo(sx+sw*0.80,sy+sh*0.55); ctx.stroke();
+      ctx.fillStyle="rgba(255,255,255,0.25)";
+      [[0.2,0.4],[0.5,0.6],[0.72,0.35],[0.88,0.7]].forEach(function(p){ctx.beginPath();ctx.arc(sx+sw*p[0],sy+sh*p[1],1.5,0,Math.PI*2);ctx.fill();});
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "#FBF17A";
+      ctx.fillRect(boxX, lineY, boxW, BOX_HEIGHT);
+    }
   }
-  
-  // 3) TESTO TITOLO (nero) — centrato verticalmente nel box
-  ctx.fillStyle = "#1C1F1C";
+  // 3) TESTO TITOLO
+  ctx.fillStyle = (titVariante === "2") ? "#FFFFFF" : "#1C1F1C";
   for (var i = 0; i < lines.length; i++) {
     var lineY = titleBoxTopY + i * LINE_HEIGHT;
     var baselineY = lineY + PAD_V + CAP_HEIGHT;
-    ctx.fillText(lines[i], LEFT_PAD + INNER_PAD_X, baselineY);
+    var bxW = Math.min(lineWidths[i] + INNER_PAD_X * 2, W - LEFT_PAD - SAFE_RIGHT);
+    var bxX = (titAlign === "center") ? Math.round((W - bxW) / 2) : LEFT_PAD;
+    if (titAlign === "center") {
+      ctx.textAlign = "center";
+      ctx.fillText(lines[i], W / 2, baselineY);
+      ctx.textAlign = "left";
+    } else {
+      ctx.fillText(lines[i], bxX + INNER_PAD_X, baselineY);
+    }
   }
   
   // 4) BOX CATEGORIA (nero) ATTACCATO sotto al box titolo
@@ -3851,13 +4285,26 @@ function renderTitoletti(ctx, canvas, data) {
     var catText = data.categoria;
     var catTextW = ctx.measureText(catText).width;
     var catBoxW = catTextW + INNER_PAD_X * 2;
+    var catBoxX = (titAlign === "center") ? Math.round((W - catBoxW) / 2) : LEFT_PAD;
     
-    ctx.fillStyle = "#1C1F1C";
-    ctx.fillRect(LEFT_PAD, catBoxTopY, catBoxW, catBoxHeight);
+    if (titVariante === "2") {
+      ctx.save();
+      var cx2=catBoxX,cy2=catBoxTopY,cw2=catBoxW,ch2=catBoxHeight;
+      ctx.fillStyle="rgba(200,220,235,0.18)"; ctx.fillRect(cx2,cy2,cw2,ch2);
+      ctx.fillStyle="rgba(255,255,255,0.6)";  ctx.fillRect(cx2,cy2,cw2,2);
+      ctx.fillStyle="rgba(255,255,255,0.3)";  ctx.fillRect(cx2,cy2+ch2-2,cw2,2);
+      ctx.fillStyle="rgba(255,255,255,0.1)";
+      ctx.beginPath(); ctx.moveTo(cx2+cw2*0.1,cy2); ctx.lineTo(cx2+cw2*0.3,cy2);
+      ctx.lineTo(cx2+cw2*0.2,cy2+ch2); ctx.lineTo(cx2,cy2+ch2); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "#1C1F1C";
+      ctx.fillRect(catBoxX, catBoxTopY, catBoxW, catBoxHeight);
+    }
     
-    ctx.fillStyle = "#FBF17A";
+    ctx.fillStyle = (titVariante === "2") ? "#FFFFFF" : "#FBF17A";
     var catBaselineY = catBoxTopY + catBoxHeight / 2 + CAT_FONT_SIZE * 0.35;
-    ctx.fillText(catText, LEFT_PAD + INNER_PAD_X, catBaselineY);
+    ctx.fillText(catText, catBoxX + INNER_PAD_X, catBaselineY);
   }
 }
 
@@ -4181,7 +4628,7 @@ function drawFreccia(ctx, x, y, w, color) {
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
-  ctx.fillStyle = color;
+  ctx.fillStyle = "#FFFFFF";
   ctx.beginPath();
   ctx.moveTo(55.037, 0);
   ctx.lineTo(40.373, 0);
@@ -5977,6 +6424,36 @@ function handleTitolettiImg(input) {
   input.value = '';
 }
 
+function _buildTitolettiVarButtons(i, slide) {
+  var isScotch = slide.varianteTitoletti === "2";
+  var b1style = "flex:1;padding:8px 0;border-radius:8px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.04em;";
+  var b2style = b1style;
+  b1style += "border:2px solid " + (!isScotch ? "#FBF17A" : "rgba(255,255,255,0.15)") + ";";
+  b1style += "background:" + (!isScotch ? "#FBF17A" : "transparent") + ";";
+  b1style += "color:" + (!isScotch ? "#111" : "rgba(255,255,255,0.4)") + ";";
+  b2style += "border:2px solid " + (isScotch ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.15)") + ";";
+  b2style += "background:" + (isScotch ? "rgba(255,255,255,0.12)" : "transparent") + ";";
+  b2style += "color:" + (isScotch ? "#fff" : "rgba(255,255,255,0.4)") + ";";
+  return '<div style="display:flex;gap:8px;margin-bottom:10px;">' +
+    '<button onclick="setTitolettiVariante(' + i + ',\'1\')" style="' + b1style + '">Box giallo</button>' +
+    '<button onclick="setTitolettiVariante(' + i + ',\'2\')" style="' + b2style + '">Scotch</button>' +
+    '</div>';
+}
+
+function setTitolettiAlign(idx, align) {
+  if (!state.slides[idx]) return;
+  state.slides[idx].alignTitoletti = align;
+  renderTitolettiList();
+  render();
+}
+
+function setTitolettiVariante(idx, v) {
+  if (!state.slides[idx]) return;
+  state.slides[idx].varianteTitoletti = v;
+  renderTitolettiList();
+  render();
+}
+
 function _tcUpdateTitolettiThumb(src, isVideo) {
   var thumb = document.getElementById('titolettiImgThumb');
   var placeholder = document.getElementById('titolettiThumbPlaceholder');
@@ -6001,7 +6478,7 @@ function _tcShowTitolettiMediaUI(show) {
   var tb = document.getElementById('canvasToolbar');
   var hint = document.getElementById('dragHint');
   if (removeBtn) removeBtn.style.display = show ? 'block' : 'none';
-  if (posRow) posRow.style.display = show ? 'flex' : 'none';
+  if (posRow) posRow.style.display = 'flex'; // sempre visibile
   if (tb) { if (show) tb.classList.remove('hidden'); else tb.classList.add('hidden'); }
   if (hint && show) hint.style.display = 'block';
 }
@@ -6029,9 +6506,48 @@ function removeTitolettiImg() {
   render();
 }
 
+function _getTitolettiMaxDist(tIdx) {
+  var slide = state.slides[tIdx];
+  if (!slide) return 1137;
+  var nRighe = 1;
+  var cvs = document.getElementById("canvas");
+  if (cvs && typeof wrapTextSimple === "function") {
+    var ctx2 = cvs.getContext("2d");
+    ctx2.font = "800 95px Marcin Antique, sans-serif";
+    var MAX_W = 720;
+    var titolo = (slide.testo || "X").toUpperCase();
+    var NL = String.fromCharCode(10);
+    var paras = titolo.split(NL);
+    var lns = [];
+    for (var p = 0; p < paras.length; p++) {
+      if (!paras[p]) { lns.push(""); }
+      else { var wr = wrapTextSimple(ctx2, paras[p], MAX_W); for (var j = 0; j < wr.length; j++) lns.push(wr[j]); }
+      if (lns.length >= 4) break;
+    }
+    nRighe = Math.max(1, Math.min(4, lns.length));
+  }
+  // 1920 - 250(margine top) - 116(logo) - 30(gap) - (n-1)*84(righe extra) - 100(box) - 35(cat)
+  return 1920 - 250 - 116 - 30 - (nRighe - 1) * 84 - 100 - 35;
+}
+
+function updateTitolettiSliderMax() {
+  var tIdx = state.currentPreview - 1; if (tIdx < 0) tIdx = 0;
+  var slider = document.getElementById('titolettiPosSlider');
+  if (!slider) return;
+  var maxVal = _getTitolettiMaxDist(tIdx);
+  slider.max = maxVal;
+  // Se il valore corrente supera il nuovo max, clampalo
+  if (parseInt(slider.value) > maxVal) {
+    slider.value = maxVal;
+    onTitolettiPosChange(maxVal);
+  }
+}
+
 function onTitolettiPosChange(val) {
   var tIdx = state.currentPreview - 1; if (tIdx < 0) tIdx = 0;
-  if (state.slides[tIdx]) state.slides[tIdx].bottomDist = parseInt(val);
+  var maxVal = _getTitolettiMaxDist(tIdx);
+  var v = Math.max(380, Math.min(maxVal, parseInt(val)));
+  if (state.slides[tIdx]) state.slides[tIdx].bottomDist = v;
   render();
 }
 
@@ -6409,7 +6925,7 @@ async function exportAll() {
       if (!tp.fotoImg) {
         // Solo grafica trasparente
         exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
-        renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist });
+        renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist, varianteTitoletti: tp.varianteTitoletti || "1", alignTitoletti: tp.alignTitoletti || "left" });
         var fname = (i+1) + "_grafica.png";
         var blob = await canvasToBlob(exportCanvas);
         if (hasZip) { folder.file(fname, blob); }
@@ -6424,7 +6940,7 @@ async function exportAll() {
           // iPhone/Safari: condividi subito video originale + PNG grafica via Share API
           // Genera PNG grafica
           exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
-          renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist });
+          renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist, varianteTitoletti: tp.varianteTitoletti || "1", alignTitoletti: tp.alignTitoletti || "left" });
           var gfxBlob = await canvasToBlob(exportCanvas);
           var gfxFile = new File([gfxBlob], (i+1) + "_grafica.png", { type: "image/png" });
 
@@ -6453,7 +6969,7 @@ async function exportAll() {
             return function() {
               exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
               drawImageCover(exportCtx, slide.fotoImg, 0, 0, exportCanvas.width, exportCanvas.height, tr, filters, 0, false);
-              renderTitoletti(exportCtx, exportCanvas, { titolo: slide.testo, categoria: state.categoria, bottomDist: bdist });
+              renderTitoletti(exportCtx, exportCanvas, { titolo: slide.testo, categoria: state.categoria, bottomDist: bdist, varianteTitoletti: slide.varianteTitoletti || "1", alignTitoletti: slide.alignTitoletti || "left" });
             };
           })(tp, tpTr, tpFilters, tpBottomDist);
 
@@ -6473,7 +6989,7 @@ async function exportAll() {
         // IMMAGINE: PNG composito
         exportCtx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
         drawImageCover(exportCtx, tp.fotoImg, 0, 0, exportCanvas.width, exportCanvas.height, tpTr, tpFilters, 0, false);
-        renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist });
+        renderTitoletti(exportCtx, exportCanvas, { titolo: tp.testo, categoria: state.categoria, bottomDist: tpBottomDist, varianteTitoletti: tp.varianteTitoletti || "1", alignTitoletti: tp.alignTitoletti || "left" });
         var imgFname = (i+1) + "_con_immagine.png";
         var imgBlob = await canvasToBlob(exportCanvas);
         if (hasZip) { folder.file(imgFname, imgBlob); }
@@ -6935,18 +7451,18 @@ function updateSlideEffectButtons(i) {
 function enterEditor(tipo) {
   document.getElementById("homeScreen").style.display = "none";
   document.getElementById("editorWrap").style.display = "flex";
+  // Reset completo — progetto fresco
+  state.slides = []; state.currentPreview = 0;
+  state.fotoImg = null; state.foto = null;
+  state.fotoTransform = { offsetX:0, offsetY:0, scale:1 };
+  state.fotos = []; state.titolo = "";
   setTipo(tipo);
-  
-  // h264-mp4-encoder è già caricato dallo script tag, niente warm-up necessario
-  // Trigger resize per ricalcolare il canvas
-  setTimeout(function() {
-    updateToolbarVisibility();
-    render();
-  }, 50);
+  rebuildPreviewTabs(); showOnlyActiveCard(); updateToolbarVisibility(); render();
 }
 
 function backToHome() {
-  if (!confirm("Tornando alla home perderai il lavoro non esportato. Continuare?")) return;
+  if (!confirm("Tornando alla home il progetto verrà cancellato. Continuare?")) return;
+  clearProject();
   
   try {
     // Reset state minimo
@@ -6999,7 +7515,7 @@ function backToHome() {
 
 // Aspetta che i font siano caricati
 document.fonts.ready.then(function() {
-  // Forza il caricamento dei font Marcin che servono per il canvas (per misure accurate)
+  // Parte SEMPRE dalla home — nessun progetto auto-aperto
   Promise.all([
     document.fonts.load("700 125px 'Marcin Antique CB'"),
     document.fonts.load("700 125px 'Marcin Bold'"),
@@ -7008,7 +7524,7 @@ document.fonts.ready.then(function() {
     marcinFontsReady = true;
     if (typeof render === "function") render();
   }).catch(function(){
-    marcinFontsReady = true; // fallback: usa quel che c'è
+    marcinFontsReady = true;
     if (typeof render === "function") render();
   });
 });
