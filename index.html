@@ -265,6 +265,8 @@ to   { opacity: 1; transform: translateY(0); }
 }
 
 @media (max-width: 768px) {
+  .desktop-only-btn { display: none !important; }
+
   .home-screen { padding: 24px 16px; }
   .home-header { margin-bottom: 28px; gap: 12px; }
   .home-title { font-size: 20px; }
@@ -1691,6 +1693,8 @@ input[type="file"] { display: none; }
       <div class="sb-sub">Magazine</div>
     </div>
     <button class="back-to-home" onclick="backToHome()" title="Torna alla home">← Home</button>
+    <button onclick="saveProjectFile()" title="Salva progetto" class="desktop-only-btn" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;margin-left:6px;">&#x1F4BE;</button>
+    <label title="Apri progetto" class="desktop-only-btn" style="background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--text);border-radius:8px;padding:6px 12px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;margin-left:4px;display:inline-flex;align-items:center;">&#x1F4C2;<input type="file" accept=".esse" style="display:none;" onchange="loadProjectFile(this.files[0]);this.value='';"></label>
 
     <button class="btn-primary-mobile" onclick="exportAll()" style="display:none;margin-left:8px;">↓ Esporta</button>
   </div>
