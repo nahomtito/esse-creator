@@ -5114,6 +5114,25 @@ function openFullPreview() {
   _fpRender();
   document.getElementById("fullPreviewOverlay").style.display = "flex";
   document.body.style.overflow = "hidden";
+
+  // Mostra slider solo per titoletti e citazione_story
+  var fpRow = document.getElementById("fpPosRow");
+  var fpSl  = document.getElementById("fpPosSlider");
+  if (fpRow && fpSl) {
+    var isTit   = state.tipo === "titoletti";
+    var isStory = state.tipo === "citazione_story";
+    fpRow.style.display = (isTit || isStory) ? "block" : "none";
+    if (isTit || isStory) {
+      var idx2 = state.currentPreview - 1; if (idx2 < 0) idx2 = 0;
+      var slide2 = state.slides[idx2];
+      if (slide2) {
+        var val = isTit ? (slide2.bottomDist || 460) : (slide2.storyPosY !== undefined ? slide2.storyPosY : 460);
+        fpSl.max   = isTit ? "1137" : "1389";
+        fpSl.min   = "380";
+        fpSl.value = val;
+      }
+    }
+  }
 }
 
 function _fpRender() {
@@ -6314,6 +6333,21 @@ function onTitolettiPosChange(val) {
 }
 
 // ═══ CITAZIONE STORY ═══
+function onFpPosChange(val) {
+  // Sincronizza con lo slider nella sidebar e aggiorna canvas
+  if (state.tipo === "titoletti") {
+    onTitolettiPosChange(val);
+    var s1 = document.getElementById("titolettiPosSlider");
+    if (s1) s1.value = val;
+  } else if (state.tipo === "citazione_story") {
+    onStoryPosChange(val);
+    var s2 = document.getElementById("storyPosSlider");
+    if (s2) s2.value = val;
+  }
+  // Aggiorna fullscreen
+  if (typeof _fpRender === "function") _fpRender();
+}
+
 function onStoryPosChange(val) {
   var idx = state.currentPreview - 1; if (idx < 0) idx = 0;
   if (state.slides[idx]) state.slides[idx].storyPosY = parseInt(val);
@@ -6643,6 +6677,17 @@ document.fonts.ready.then(function() {
     <button onclick="closeFullPreview()" style="background:rgba(255,255,255,0.15);border:none;color:#fff;border-radius:50%;width:34px;height:34px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">×</button>
   </div>
   <canvas id="fullPreviewCanvas" style="touch-action:none;display:block;"></canvas>
+
+  <!-- Slider posizione per titoletti e citazione_story -->
+  <div id="fpPosRow" style="display:none;position:absolute;bottom:calc(70px + env(safe-area-inset-bottom));left:16px;right:16px;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:14px;padding:10px 16px;z-index:3;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="color:rgba(255,255,255,0.5);font-size:10px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;flex-shrink:0;">Posizione</span>
+      <input type="range" id="fpPosSlider" min="380" max="1137" value="460"
+        oninput="onFpPosChange(this.value)"
+        style="flex:1;accent-color:#FBF17A;">
+    </div>
+  </div>
+
   <div style="position:absolute;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:20px;padding:7px 14px;color:rgba(255,255,255,0.6);font-size:11px;white-space:nowrap;pointer-events:none;">
     Trascina · Pinch per zoom
   </div>
