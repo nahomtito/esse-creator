@@ -2416,7 +2416,7 @@ function renderTitolettiList() {
       '<div class="cit-field-label">Titolo</div>' +
       '<textarea id="titTextArea-' + i + '" placeholder="LOREM IPSUM DOLOR SIT AMET" rows="4" oninput="updateTitolettoText(' + i + ', this)">' + (slide.testo || '') + '</textarea>' +
       '<div style="font-size:10px;color:var(--text3);margin:-4px 0 8px 2px;letter-spacing:0.04em;">Max 4 righe — sfondo trasparente</div>' +
-      '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
+      '<div style="display:flex;gap:8px;margin-top:8px;margin-bottom:8px;">' +
         '<button onclick="setTitolettiVariante(' + i + ',\'1\')" style="flex:1;padding:7px 0;border-radius:8px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;border:2px solid ' + ((slide.varianteTitoletti||'1')!=='2'?'#FBF17A':'rgba(255,255,255,0.15)') + ';background:' + ((slide.varianteTitoletti||'1')!=='2'?'#FBF17A':'transparent') + ';color:' + ((slide.varianteTitoletti||'1')!=='2'?'#111':'rgba(255,255,255,0.4)') + ';">Box giallo</button>' +
         '<button onclick="setTitolettiVariante(' + i + ',\'2\')" style="flex:1;padding:7px 0;border-radius:8px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;border:2px solid ' + (slide.varianteTitoletti==='2'?'rgba(255,255,255,0.6)':'rgba(255,255,255,0.15)') + ';background:' + (slide.varianteTitoletti==='2'?'rgba(255,255,255,0.12)':'transparent') + ';color:' + (slide.varianteTitoletti==='2'?'#fff':'rgba(255,255,255,0.4)') + ';">Scotch</button>' +
       '</div>' +
@@ -2743,10 +2743,9 @@ function _doRender() {
     if (titIdx < 0) titIdx = 0;
     var titPost = state.slides[titIdx];
     if (titPost) {
-      // Sfondo "trasparente" → mostriamo una griglia checker nel preview per indicarlo
-      // Il rendering vero si fa con clearRect dentro renderTitoletti
-      // Ma per il preview UI vogliamo vedere la trasparenza, quindi disegno checker prima
-      drawTransparencyCheckerboard(ctx, canvas);
+      // Sfondo scuro per anteprima — il PNG esportato sarà trasparente
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       
       renderTitoletti(ctx, canvas, {
         titolo: titPost.testo || "LOREM IPSUM DOLOR SIT AMET, CONSECTETUER ADIPISCING ELIT, SED DIAM",
@@ -3783,90 +3782,60 @@ function drawTransparencyCheckerboard(ctx, canvas) {
 }
 
 function renderTitoletti(ctx, canvas, data) {
-  // Formato STORIES Instagram: 1080 x 1920
-  var W = canvas.width;
-  var H = canvas.height;
-  
-  // === MISURE ESATTE DA SPECIFICA ===
-  var LEFT_PAD = 95;
-  var SAFE_RIGHT = 185;
-  var INNER_PAD_X = 25;       // padding orizzontale del testo nel box
-  var TEXT_PAD_V = 12.9;      // padding verticale testo dai bordi del box
-  var LOGO_W = 230;
-  var LOGO_H = LOGO_W / 1.9822; // aspect ratio reale del logo = ~116px
-  var LOGO_GAP = 30;
-  var BOTTOM_DIST = (data && data.bottomDist !== undefined) ? parseInt(data.bottomDist) : 460;
-  
-  var FONT_SIZE = 95;
-  var LINE_HEIGHT = 84;   // distanza tra baseline riga N e riga N+1 (interlinea)
-  var BOX_HEIGHT = 100;   // altezza del singolo box giallo
-  var MAX_LINES = 4;
-  var CAT_FONT_SIZE = 23;
-  
-  var CAP_HEIGHT = FONT_SIZE * 0.72;  // ~68.4px altezza visiva maiuscole
-  
-  // Testo centrato verticalmente nel box da 100px
-  // PAD_V = (100 - 68.4) / 2 = ~15.8px sopra e sotto
+  var W = canvas.width, H = canvas.height;
+  var LEFT_PAD = 95, SAFE_RIGHT = 185, INNER_PAD_X = 25;
+  var LOGO_W = 230, LOGO_H = LOGO_W / 1.9822, LOGO_GAP = 30;
+  var FONT_SIZE = 95, LINE_HEIGHT = 84, BOX_HEIGHT = 100, MAX_LINES = 4, CAT_FONT_SIZE = 23;
+  var CAP_HEIGHT = FONT_SIZE * 0.72;
   var PAD_V = (BOX_HEIGHT - CAP_HEIGHT) / 2;
-  
+
+  // BOTTOM_DIST da data o default
+  var BOTTOM_DIST = (data && data.bottomDist !== undefined) ? parseInt(data.bottomDist) : 460;
+
   // === TESTO TITOLO ===
   ctx.font = "800 " + FONT_SIZE + "px 'Marcin Antique', sans-serif";
   ctx.textBaseline = "alphabetic";
-  
   var titolo = (data.titolo || "LOREM IPSUM DOLOR SIT AMET, CONSECTETUER ADIPISCING ELIT, SED DIAM").toUpperCase();
   var MAX_TEXT_WIDTH = W - LEFT_PAD - SAFE_RIGHT - INNER_PAD_X * 2;
-  
-  // Gestisco i ritorni a capo manuali (\n) splittando in paragrafi prima del wrap
-  var paragraphs = titolo.split("\n");
-  var lines = [];
+  var paragraphs = titolo.split("\n"), lines = [];
   for (var p = 0; p < paragraphs.length; p++) {
-    if (paragraphs[p] === "") {
-      lines.push("");
-    } else {
-      var wrapped = wrapTextSimple(ctx, paragraphs[p], MAX_TEXT_WIDTH);
-      for (var w = 0; w < wrapped.length; w++) lines.push(wrapped[w]);
-    }
+    if (paragraphs[p] === "") { lines.push(""); }
+    else { var wrapped = wrapTextSimple(ctx, paragraphs[p], MAX_TEXT_WIDTH); for (var w2=0;w2<wrapped.length;w2++) lines.push(wrapped[w2]); }
     if (lines.length >= MAX_LINES) break;
   }
   if (lines.length > MAX_LINES) lines = lines.slice(0, MAX_LINES);
   if (lines.length === 0) lines = [""];
-  
-  // === CATEGORIA BOX (in basso) ===
+
+  // === GEOMETRIA ===
   var catBoxHeight = CAT_FONT_SIZE + 12;
+  // Clamp BOTTOM_DIST: 250px margine top, 380px margine bottom
+  var _maxBD = H - 250 - Math.round(LOGO_H) - LOGO_GAP - (lines.length-1)*LINE_HEIGHT - BOX_HEIGHT - catBoxHeight;
+  BOTTOM_DIST = Math.max(380, Math.min(_maxBD, BOTTOM_DIST));
+
   var catBoxBottomY = H - BOTTOM_DIST;
-  var catBoxTopY = catBoxBottomY - catBoxHeight;
-  
-  // === BOX TITOLO === (attaccato sopra al box categoria)
+  var catBoxTopY    = catBoxBottomY - catBoxHeight;
   var titleBoxBottomY = catBoxTopY;
-  var titleBoxTopY = titleBoxBottomY - ((lines.length - 1) * LINE_HEIGHT + BOX_HEIGHT);
-  
-  // === LOGO ===
-  var logoBottomY = titleBoxTopY - LOGO_GAP;
-  var logoTopY = logoBottomY - LOGO_H;
-  
-  // === DISEGNO ===
+  var titleBoxTopY    = titleBoxBottomY - ((lines.length-1)*LINE_HEIGHT + BOX_HEIGHT);
+  var logoTopY = titleBoxTopY - LOGO_GAP - LOGO_H;
+
+  // === VARIANTE E ALLINEAMENTO ===
   var titVariante = (data && data.varianteTitoletti) ? data.varianteTitoletti : "1";
   var titAlign    = (data && data.alignTitoletti)    ? data.alignTitoletti    : "left";
 
-  // 1) LOGO ESSE
+  // === 1) LOGO ===
   if (esseLogoReady && esseLogo) {
     var logoX = (titAlign === "center") ? Math.round((W - LOGO_W) / 2) : LEFT_PAD;
     ctx.drawImage(esseLogo, logoX, logoTopY, LOGO_W, LOGO_H);
   }
 
-  // 2) BOX TITOLO (variante 1=giallo, 2=scotch)
+  // === 2) BOX TITOLO ===
   ctx.font = "800 " + FONT_SIZE + "px 'Marcin Antique', sans-serif";
-  var lineWidths = lines.map(function(line) { return ctx.measureText(line).width; });
-
-  // Clamp BOTTOM_DIST per margini 250px top / 380px bottom
-  var _catH2 = CAT_FONT_SIZE + 12;
-  var _maxBD = H - 250 - Math.round(LOGO_W / 1.9822) - LOGO_GAP - (lines.length - 1) * LINE_HEIGHT - BOX_HEIGHT - _catH2;
-  BOTTOM_DIST = Math.max(380, Math.min(_maxBD, BOTTOM_DIST));
+  var lineWidths = lines.map(function(l){ return ctx.measureText(l).width; });
 
   for (var i = 0; i < lines.length; i++) {
     var lineY = titleBoxTopY + i * LINE_HEIGHT;
-    var boxW = Math.min(lineWidths[i] + INNER_PAD_X * 2, W - LEFT_PAD - SAFE_RIGHT);
-    var boxX = (titAlign === "center") ? Math.round((W - boxW) / 2) : LEFT_PAD;
+    var boxW  = Math.min(lineWidths[i] + INNER_PAD_X*2, W - LEFT_PAD - SAFE_RIGHT);
+    var boxX  = (titAlign === "center") ? Math.round((W - boxW) / 2) : LEFT_PAD;
     if (titVariante === "2") {
       ctx.save();
       ctx.fillStyle = "rgba(200,220,235,0.18)"; ctx.fillRect(boxX,lineY,boxW,BOX_HEIGHT);
@@ -3885,12 +3854,12 @@ function renderTitoletti(ctx, canvas, data) {
     }
   }
 
-  // 3) TESTO TITOLO
+  // === 3) TESTO ===
   ctx.fillStyle = (titVariante === "2") ? "#FFFFFF" : "#1C1F1C";
   for (var i = 0; i < lines.length; i++) {
     var lineY = titleBoxTopY + i * LINE_HEIGHT;
     var baselineY = lineY + PAD_V + CAP_HEIGHT;
-    var bxW = Math.min(lineWidths[i] + INNER_PAD_X * 2, W - LEFT_PAD - SAFE_RIGHT);
+    var bxW = Math.min(lineWidths[i] + INNER_PAD_X*2, W - LEFT_PAD - SAFE_RIGHT);
     var bxX = (titAlign === "center") ? Math.round((W - bxW) / 2) : LEFT_PAD;
     if (titAlign === "center") {
       ctx.textAlign = "center"; ctx.fillText(lines[i], W/2, baselineY); ctx.textAlign = "left";
@@ -3898,20 +3867,27 @@ function renderTitoletti(ctx, canvas, data) {
       ctx.fillText(lines[i], bxX + INNER_PAD_X, baselineY);
     }
   }
-  
-  // 4) BOX CATEGORIA (nero) ATTACCATO sotto al box titolo
+
+  // === 4) BOX CATEGORIA ===
   if (data.categoria && data.categoria !== "NESSUNA") {
     ctx.font = "500 " + CAT_FONT_SIZE + "px 'Akzidenz Grotesk', sans-serif";
     var catText = data.categoria;
     var catTextW = ctx.measureText(catText).width;
-    var catBoxW = catTextW + INNER_PAD_X * 2;
-    var catBoxX = (titAlign === "center") ? Math.round((W - catBoxW) / 2) : LEFT_PAD;
-    
-    ctx.fillStyle = "#1C1F1C";
-    ctx.fillRect(catBoxX, catBoxTopY, catBoxW, catBoxHeight);
-    
-    ctx.fillStyle = (titVariante === "2") ? "#FFFFFF" : "#FBF17A";
-    var catBaselineY = catBoxTopY + catBoxHeight / 2 + CAT_FONT_SIZE * 0.35;
+    var catBoxW  = catTextW + INNER_PAD_X * 2;
+    var catBoxX  = (titAlign === "center") ? Math.round((W - catBoxW) / 2) : LEFT_PAD;
+    if (titVariante === "2") {
+      ctx.save();
+      ctx.fillStyle = "rgba(200,220,235,0.18)"; ctx.fillRect(catBoxX,catBoxTopY,catBoxW,catBoxHeight);
+      ctx.fillStyle = "rgba(255,255,255,0.6)";  ctx.fillRect(catBoxX,catBoxTopY,catBoxW,2);
+      ctx.fillStyle = "rgba(255,255,255,0.3)";  ctx.fillRect(catBoxX,catBoxTopY+catBoxHeight-2,catBoxW,2);
+      ctx.restore();
+      ctx.fillStyle = "#FFFFFF";
+    } else {
+      ctx.fillStyle = "#1C1F1C";
+      ctx.fillRect(catBoxX, catBoxTopY, catBoxW, catBoxHeight);
+      ctx.fillStyle = "#FBF17A";
+    }
+    var catBaselineY = catBoxTopY + catBoxHeight/2 + CAT_FONT_SIZE*0.35;
     ctx.fillText(catText, catBoxX + INNER_PAD_X, catBaselineY);
   }
 }
@@ -5772,7 +5748,10 @@ async function exportAll() {
       
       renderTitoletti(exportCtx, exportCanvas, {
         titolo: tp.testo,
-        categoria: state.categoria
+        categoria: state.categoria,
+        bottomDist: tp.bottomDist || 460,
+        varianteTitoletti: tp.varianteTitoletti || "1",
+        alignTitoletti: tp.alignTitoletti || "left"
       });
       
       var fileNumT = (i + 1) + ".png";
