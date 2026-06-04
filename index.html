@@ -6470,6 +6470,75 @@ function renderCitazioneStory(ctx, canvas, data) {
   var textLastBaseY  = hasFonte ? (fonteTopY - TEXT_FONTE_GAP) : blockBottomY;
   var textFirstBaseY = textLastBaseY - (lines.length - 1) * lineH;
 
+  // === BOX SCURO PER RIGA (35% opacità, nessuna sovrapposizione) ===
+  // Raccogliamo tutti i rettangoli e li disegniamo in un unico path composito
+  var BOX_PAD_X = 20, BOX_PAD_Y = 8;
+  ctx.font = fontSize + "px 'Marcin Narrow', sans-serif";
+
+  // Box per ogni riga: alto fontSize + padding, centrato sulla cap-height
+  var rects = [];
+  var BOX_H_TEXT = fontSize + BOX_PAD_Y * 2; // altezza box testo
+
+  for (var bi = 0; bi < lines.length; bi++) {
+    var bLine = lines[bi];
+    var bW = 0;
+    if (typeof bLine === "string") {
+      bW = ctx.measureText(bLine).width;
+    } else if (Array.isArray(bLine)) {
+      for (var bs = 0; bs < bLine.length; bs++) bW += ctx.measureText(bLine[bs].text).width;
+    }
+    if (bW < 1) continue;
+    var baseY = textFirstBaseY + bi * lineH;
+    rects.push({
+      x: LEFT_PAD - BOX_PAD_X,
+      y: baseY - fontSize * 0.82 - BOX_PAD_Y,
+      w: bW + BOX_PAD_X * 2,
+      h: BOX_H_TEXT
+    });
+  }
+
+  // Righe della fonte (senza virgolette)
+  if (hasFonte) {
+    ctx.font = "600 " + FONT_SEMI + "px 'Marcin SemiBold', sans-serif";
+    var tmF = ctx.measureText("A");
+    var fAscent  = tmF.actualBoundingBoxAscent  || FONT_SEMI * 0.75;
+    var fDescent = tmF.actualBoundingBoxDescent || FONT_SEMI * 0.2;
+    var fRowH    = fAscent + fDescent;
+    var sottoX2  = LEFT_PAD + VIRG_W + FONT_GAP;
+    var hasTwo2  = chi && dove;
+    var fLineH   = fRowH + 6;
+    var fStartY  = hasTwo2
+      ? fonteTopY + (VIRG_H - fLineH * 2 + 6) / 2 + fAscent
+      : fonteTopY + (VIRG_H - fRowH) / 2 + fAscent;
+    var fonteRows = [];
+    if (chi)  fonteRows.push({ text: chi,  baseY: fStartY });
+    if (dove) fonteRows.push({ text: dove, baseY: chi ? fStartY + fLineH : fStartY });
+    for (var fri = 0; fri < fonteRows.length; fri++) {
+      var fr = fonteRows[fri];
+      var frW = ctx.measureText(fr.text).width;
+      // Box centrato sulla riga: alto fLineH
+      rects.push({
+        x: sottoX2 - BOX_PAD_X,
+        y: fr.baseY - fAscent - 4,
+        w: frW + BOX_PAD_X * 2,
+        h: fAscent + (fRowH - fAscent) + 8
+      });
+    }
+    ctx.font = fontSize + "px 'Marcin Narrow', sans-serif";
+  }
+
+  // Disegna tutti i box in un unico path — così non si sovrappongono le opacità
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "#000000";
+  ctx.beginPath();
+  for (var ri = 0; ri < rects.length; ri++) {
+    var r2 = rects[ri];
+    ctx.rect(r2.x, r2.y, r2.w, r2.h);
+  }
+  ctx.fill();
+  ctx.restore();
+
   // === TESTO ===
   ctx.font = fontSize + "px 'Marcin Narrow', sans-serif";
   ctx.fillStyle = "#efecde";
