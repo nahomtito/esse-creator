@@ -6050,8 +6050,8 @@ async function exportAll() {
           fotoBlur: s.fotoBlur,
           blackBackground: s.blackBackground,
           fotosExtra: s.fotosExtra,
-          ultima: s.ultima,
-        esclusiva: state.esclusiva || "nessuna"
+          ultima: (i === state.slides.length - 1) || s.ultima,
+          esclusiva: state.esclusiva || "nessuna"
         });
         
         var fileNum = (i + 2) + ".png";
