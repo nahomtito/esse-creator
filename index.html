@@ -1830,6 +1830,7 @@ input[type="file"] { display: none; }
       <div class="section-label" id="slideSectionLabel">Slide</div>
       <div class="slide-list" id="slideList"></div>
       <!-- bottone aggiungi spostato sopra nelle tab -->
+
     </div>
 
     <!-- Sezione Immagini extra (multi-foto) - globale per preview attiva -->
@@ -2074,7 +2075,29 @@ function setVarianteApertura(v) {
 function handleFoto(input) {
   if (!input.files || !input.files[0]) return;
   var file = input.files[0];
-  var isVideo = file.type.indexOf("video") === 0;
+  if (file.type.indexOf("video") === 0) {
+    var url = URL.createObjectURL(file);
+    var video = document.createElement("video");
+    video.src = url; video.muted = true; video.loop = true; video.playsInline = true;
+    video.crossOrigin = "anonymous"; video.preload = "auto";
+    video.onloadedmetadata = function() {
+      video.naturalWidth = video.videoWidth; video.naturalHeight = video.videoHeight; video._isVideo = true;
+      state.foto = url; state.fotoImg = video;
+      state.fotoTransform = {offsetX:0,offsetY:0,scale:1}; state.fotoBlur = 0; state.blackBackground = false;
+      if (typeof updateApEffectButtons === "function") updateApEffectButtons();
+      var zone = document.getElementById("uploadZone");
+      if (zone) {
+        zone.classList.add("has-image"); zone.innerHTML = "";
+        var vid = document.createElement("video"); vid.src=url; vid.muted=true; vid.loop=true; vid.autoplay=true; vid.playsInline=true; vid.style.cssText="width:100%;height:100%;object-fit:cover;";
+        var badge = document.createElement("div"); badge.className="upscale-badge done"; badge.textContent="Video "+video.videoWidth+"x"+video.videoHeight;
+        var btn = document.createElement("button"); btn.className="up-change"; btn.textContent="Cambia"; btn.onclick=function(e){e.stopPropagation();document.getElementById("fotoInput").click();};
+        zone.appendChild(vid); zone.appendChild(badge); zone.appendChild(btn);
+      }
+      video.play().catch(function(){}); if(typeof startVideoLoop==="function") startVideoLoop(video); render();
+    };
+    video.onerror=function(){showStatus("Errore video","error");};
+    return;
+  }
   var reader = new FileReader();
   reader.onload = function(e) {
     state.foto = e.target.result;
@@ -3088,12 +3111,12 @@ function drawImageCover(ctx, img, x, y, w, h, transform, filters, blur, blackBg)
   }
   
   if (!img) {
+    if (arguments[10]) return; // transparent mode: salta sfondo
     var grad = ctx.createLinearGradient(x, y, x, y + h);
     grad.addColorStop(0, "#3a3a3a");
     grad.addColorStop(1, "#1a1a1a");
     ctx.fillStyle = grad;
     ctx.fillRect(x, y, w, h);
-
     ctx.fillStyle = "#555";
     ctx.font = "30px 'Akzidenz Grotesk', sans-serif";
     ctx.textAlign = "center";
@@ -3328,7 +3351,7 @@ function renderApertura(ctx, canvas, data) {
   // (il wrap userebbe il fallback con misure errate)
   if (!marcinCBReady) {
     ctx.fillStyle = "#1C1F1C";
-    ctx.fillRect(0, 0, W, H);
+    if (!data.transparent) ctx.fillRect(0, 0, W, H);
     return;
   }
   
@@ -3621,14 +3644,18 @@ function renderApertura(ctx, canvas, data) {
 // - Sfumatura nera sotto il testo per leggibilità (gradient adattivo)
 function renderSlide(ctx, canvas, data) {
   var W = 1080, H = 1440;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
   ctx.clearRect(0, 0, W, H);
   
   // 1. Foto sfondo (con transform, filtri, blur, black bg) o griglia multi-immagine
   var fotosArrSlide = buildFotosArrayForRender(data.foto, data.fotoTransform, data.fotosExtra);
-  if (fotosArrSlide.length > 1) {
-    drawImagesGrid(ctx, fotosArrSlide, 0, 0, W, H, null, 0, false);
-  } else {
-    drawImageCover(ctx, data.foto, 0, 0, W, H, data.fotoTransform, data.fotoFilters, data.fotoBlur, data.blackBackground);
+  if (!data.transparent) {
+    if (fotosArrSlide.length > 1) {
+      drawImagesGrid(ctx, fotosArrSlide, 0, 0, W, H, null, 0, false);
+    } else {
+      drawImageCover(ctx, data.foto, 0, 0, W, H, data.fotoTransform, data.fotoFilters, data.fotoBlur, data.blackBackground);
+    }
   }
   
   // 2. Logo esse in alto a sinistra (200 wide, top 60, left 60)
@@ -3937,12 +3964,18 @@ function renderCitazione(ctx, canvas, data) {
   var W = 1080, H = 1440;
   ctx.clearRect(0, 0, W, H);
   
-  // Sfondo (foto/blur/black o griglia multi-immagine)
+  // Sfondo (foto/blur/black o griglia multi-immagine) — skip se trasparente
   var fotosArrCit = buildFotosArrayForRender(data.foto, data.fotoTransform, data.fotosExtra);
-  if (fotosArrCit.length > 1) {
-    drawImagesGrid(ctx, fotosArrCit, 0, 0, W, H, null, 0, false);
-  } else {
-    drawImageCover(ctx, data.foto, 0, 0, W, H, data.fotoTransform, data.fotoFilters, data.fotoBlur, data.blackBackground);
+  if (data.blackBackground) {
+    // Fondo nero sempre, anche in modalità transparent
+    ctx.fillStyle = "#1C1F1C";
+    ctx.fillRect(0, 0, W, H);
+  } else if (!data.transparent) {
+    if (fotosArrCit.length > 1) {
+      drawImagesGrid(ctx, fotosArrCit, 0, 0, W, H, null, 0, false);
+    } else {
+      drawImageCover(ctx, data.foto, 0, 0, W, H, data.fotoTransform, data.fotoFilters, data.fotoBlur, false);
+    }
   }
   
   // === Parametri variante ===
@@ -4144,6 +4177,7 @@ function renderCitazione(ctx, canvas, data) {
   if (data.ploom) {
     var _plCitPos = (v === "3" || v === "4") ? "basso-destra" : "alto-destra";
     drawPloom(ctx, _plCitPos);
+    drawDicituraPloom(ctx, (v === "3" || v === "4") ? "alto" : "basso");
   }
 }
 
@@ -5681,107 +5715,31 @@ function canvasToBlob(canvas) {
 
 // Registra il canvas come video. Restituisce sempre MP4 (converte se necessario).
 async function recordCanvasAsVideo(videoEl, canvasEl, renderFn, durationMs) {
-  const loadingEl = document.getElementById("loadingText");
-  if (loadingEl) loadingEl.textContent = "Registrazione video…";
-
-  // Prova a precaricare FFmpeg ma non blocca se fallisce
-  var ffmpegOk = false;
-  try {
-    if (typeof window.__getFFmpeg === "function") {
-      await window.__getFFmpeg();
-      ffmpegOk = true;
-      console.log("[record] FFmpeg pronto");
-    }
-  } catch(err) {
-    console.warn("[record] FFmpeg non disponibile, uso formato nativo:", err.message);
-  }
-
+  var loadingEl = document.getElementById("loadingText");
+  if (loadingEl) loadingEl.textContent = "Registrazione video...";
   return new Promise(function(resolve, reject) {
-    if (!canvasEl.captureStream) {
-      reject(new Error("captureStream non supportato dal browser"));
-      return;
-    }
-
-    const canvasStream = canvasEl.captureStream(30);
-
-    let mimeType;
-    if (MediaRecorder.isTypeSupported("video/mp4;codecs=avc1")) mimeType = "video/mp4;codecs=avc1";
-    else if (MediaRecorder.isTypeSupported("video/mp4")) mimeType = "video/mp4";
-    else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) mimeType = "video/webm;codecs=vp9";
-    else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp8")) mimeType = "video/webm;codecs=vp8";
-    else if (MediaRecorder.isTypeSupported("video/webm")) mimeType = "video/webm";
-    else { reject(new Error("Nessun formato video supportato")); return; }
-
-    console.log("[record] Recording with", mimeType, "ffmpegOk:", ffmpegOk);
-
-    let recorder;
-    try {
-      recorder = new MediaRecorder(canvasStream, { mimeType: mimeType, videoBitsPerSecond: 10000000 });
-    } catch(e) { reject(e); return; }
-
-    const chunks = [];
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
-    recorder.onstop = async function() {
-      const rawBlob = new Blob(chunks, { type: mimeType });
-      stopVideoLoop();
-      console.log("[record] Recording done:", rawBlob.size, "bytes");
-
-      // Se FFmpeg è disponibile e il formato non è già MP4 nativo, converti
-      if (ffmpegOk && typeof window.__convertToMp4 === "function" && mimeType.indexOf("mp4") === -1) {
-        try {
-          if (loadingEl) loadingEl.textContent = "Conversione MP4 H.264…";
-          const mp4Blob = await window.__convertToMp4(rawBlob, mimeType);
-          resolve({ blob: mp4Blob, mimeType: "video/mp4" });
-          return;
-        } catch(err) {
-          console.warn("[record] Conversione MP4 fallita, uso formato nativo:", err);
-        }
-      }
-      // Usa il formato registrato direttamente
-      resolve({ blob: rawBlob, mimeType: mimeType });
-    };
-    
-    recorder.onerror = (e) => { stopVideoLoop(); reject(e); };
-    
-    videoEl.currentTime = 0;
-    videoEl.muted = true;
-    videoEl.loop = false;
-    
-    let stopRequested = false;
-    let rafId = null;
-    
-    function renderTick() {
-      if (stopRequested) return;
-      renderFn();
-      rafId = requestAnimationFrame(renderTick);
-    }
-    
-    videoEl.onplaying = () => {
-      recorder.start(100);
-      renderTick();
-    };
-    
-    videoEl.onended = () => {
-      stopRequested = true;
-      if (rafId) cancelAnimationFrame(rafId);
-      if (recorder.state === "recording") {
-        renderFn();
-        setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, 100);
-      }
-    };
-    
-    setTimeout(() => {
-      if (recorder.state === "recording") {
-        stopRequested = true;
-        if (rafId) cancelAnimationFrame(rafId);
-        recorder.stop();
-      }
-    }, Math.min(durationMs * 1.5, 30000));
-    
-    videoEl.play().catch(reject);
+    if (!canvasEl.captureStream) { reject(new Error("captureStream non supportato")); return; }
+    var stream = canvasEl.captureStream(30);
+    var mimeType = "";
+    var fmts = ["video/mp4;codecs=avc1.42E01E","video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"];
+    for (var i=0;i<fmts.length;i++) { try{if(MediaRecorder.isTypeSupported(fmts[i])){mimeType=fmts[i];break;}}catch(e){} }
+    if (!mimeType) { reject(new Error("Nessun formato video supportato")); return; }
+    var recorder; try{recorder=new MediaRecorder(stream,{mimeType:mimeType,videoBitsPerSecond:8000000});}catch(e){reject(e);return;}
+    var chunks=[];
+    recorder.ondataavailable=function(e){if(e.data&&e.data.size>0)chunks.push(e.data);};
+    recorder.onstop=function(){var blob=new Blob(chunks,{type:mimeType});resolve({blob:blob,mimeType:mimeType.indexOf("mp4")!==-1?"video/mp4":mimeType});};
+    recorder.onerror=function(e){stopVideoLoop();reject(e.error||new Error("Errore"));};
+    videoEl.currentTime=0;videoEl.muted=true;videoEl.loop=false;videoEl.playbackRate=1.0;
+    var stopped=false,rafId=null;
+    function tick(){if(stopped)return;renderFn();rafId=requestAnimationFrame(tick);}
+    videoEl.onplaying=function(){recorder.start(33);tick();};
+    videoEl.onended=function(){if(stopped)return;stopped=true;if(rafId)cancelAnimationFrame(rafId);renderFn();setTimeout(function(){if(recorder.state==="recording")recorder.stop();},200);};
+    setTimeout(function(){if(recorder.state==="recording"){stopped=true;if(rafId)cancelAnimationFrame(rafId);recorder.stop();}},durationMs+5000);
+    videoEl.play().catch(function(e){reject(new Error("Play fallito: "+e.message));});
   });
 }
+
+
 
 
 // Verifica se una slide/post ha un video di sfondo
@@ -5795,6 +5753,14 @@ function getVideoExtension(mimeType) {
   if (mimeType && mimeType.indexOf("mp4") !== -1) return "mp4";
   if (mimeType && mimeType.indexOf("webm") !== -1) return "webm";
   return "mp4"; // default
+}
+
+
+// Crea un canvas fresco trasparente per export
+function makeTransparentCanvas(w, h) {
+  var cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  return cv;
 }
 
 async function exportAll() {
@@ -5990,7 +5956,11 @@ async function exportAll() {
         
         var renderFnC = (function(citaz, isLast) {
           return function() {
-            renderCitazione(exportCtx, exportCanvas, {
+        var _cNoFoto = !(citaz.fotoImg) && !(citaz.fotosExtra && citaz.fotosExtra.length>0);
+        var _cNero = !!citaz.blackBackground;
+        var _cCvs = (_cNoFoto && !_cNero) ? makeTransparentCanvas(1080,1440) : exportCanvas;
+        var _cCtx = (_cNoFoto && !_cNero) ? _cCvs.getContext("2d") : exportCtx;
+        renderCitazione(_cCtx, _cCvs, {
               testo: citaz.testo,
               fonteChi: citaz.fonteChi,
               fonteDove: citaz.fonteDove,
@@ -6025,29 +5995,36 @@ async function exportAll() {
           throw err;
         }
       } else {
-        renderCitazione(exportCtx, exportCanvas, {
+        var _noCitFoto = !(s.fotoImg) && !(s.fotosExtra && s.fotosExtra.length > 0);
+        var _hasNero = !!s.blackBackground;
+        // Se no foto e no fondo nero → PNG trasparente; se fondo nero → sfondo nero opaco
+        var _citCvsFin = (_noCitFoto && !_hasNero) ? makeTransparentCanvas(1080,1440) : exportCanvas;
+        var _citXFin   = (_noCitFoto && !_hasNero) ? _citCvsFin.getContext("2d") : exportCtx;
+        _citXFin.clearRect(0, 0, 1080, 1440);
+        renderCitazione(_citXFin, _citCvsFin, {
           testo: s.testo,
           fonteChi: s.fonteChi,
           fonteDove: s.fonteDove,
           variante: s.variante,
-              esclusiva: state.esclusiva || "nessuna",
-        amazonMusic: !!state.amazonMusic,
-        ploom: !!state.ploom,
+          esclusiva: state.esclusiva || "nessuna",
+          amazonMusic: !!state.amazonMusic,
+          ploom: !!state.ploom,
           foto: s.fotoImg,
           fotoTransform: s.fotoTransform,
           fotoFilters: s.fotoFilters,
           fotoBlur: s.fotoBlur,
           blackBackground: s.blackBackground,
           fotosExtra: s.fotosExtra,
-          mostraFreccia: !isLastCitExp
+          mostraFreccia: !isLastCitExp,
+          transparent: (_noCitFoto && !_hasNero)
         });
         
         var fileNum = (i + 1) + ".png";
         if (hasZip) {
-          var blobC = await canvasToBlob(exportCanvas);
+          var blobC = await canvasToBlob(_citCvsFin);
           folder.file(fileNum, blobC);
         } else {
-          if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); } else { await downloadCanvas(exportCanvas, fileNum); }
+          if (isMobile) { mobileImages.push(await canvasToDataURL(_citCvsFin)); } else { await downloadCanvas(_citCvsFin, fileNum); }
         }
       }
     }
@@ -6101,7 +6078,11 @@ async function exportAll() {
         throw err;
       }
     } else {
-      renderApertura(exportCtx, exportCanvas, {
+      var _apTransp = !(state.fotoImg) && !state.blackBackground;
+      var _apC = _apTransp ? makeTransparentCanvas(1080,1440) : exportCanvas;
+      var _apX = _apTransp ? _apC.getContext("2d") : exportCtx;
+      if (!_apTransp) _apX.clearRect(0,0,1080,1440);
+      renderApertura(_apX, _apC, {
         titolo: state.titolo,
         categoria: state.categoria,
         foto: state.fotoImg,
@@ -6115,15 +6096,16 @@ async function exportAll() {
         cerchioImg: state.cerchioImg || null,
         cerchioPos: state.cerchioPos || "destra",
         esclusiva: state.esclusiva || "nessuna",
+          transparent: _apTransp,
         amazonMusic: !!state.amazonMusic,
         ploom: !!state.ploom
       });
       
       if (hasZip) {
-        var blob1 = await canvasToBlob(exportCanvas);
+        var blob1 = await canvasToBlob(_apC);
         folder.file("1.png", blob1);
       } else {
-        if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); } else { await downloadCanvas(exportCanvas, "1.png"); }
+        if (isMobile) { mobileImages.push(await canvasToDataURL(_apC)); } else { await downloadCanvas(_apC, "1.png"); }
       }
     }
     
@@ -6133,7 +6115,18 @@ async function exportAll() {
         document.getElementById("loadingText").textContent = "Generazione slide " + (i+1) + " di " + state.slides.length + "…";
         await new Promise(function(r) { setTimeout(r, 100); });
         
-        renderSlide(exportCtx, exportCanvas, {
+        var _transp = !(s.fotoImg) && !(s.fotosExtra && s.fotosExtra.length > 0) && !s.blackBackground;
+        
+        // Canvas dedicato per trasparente — completamente nuovo ad ogni slide
+        var _c = document.createElement("canvas");
+        _c.width = 1080; _c.height = 1440;
+        var _x = _c.getContext("2d");
+        // Garantisce trasparenza totale — sovrascrive qualsiasi pixel
+        _x.globalCompositeOperation = 'source-over';
+        _x.clearRect(0, 0, 1080, 1440);
+        _x.globalAlpha = 1;
+        
+        renderSlide(_x, _c, {
           testo: s.testo,
           variante: s.variante,
           align: s.align,
@@ -6145,18 +6138,19 @@ async function exportAll() {
           fotoBlur: s.fotoBlur,
           blackBackground: s.blackBackground,
           fotosExtra: s.fotosExtra,
+          transparent: _transp,
           ultima: (i === state.slides.length - 1) || s.ultima,
           esclusiva: state.esclusiva || "nessuna",
-        amazonMusic: !!state.amazonMusic,
-        ploom: !!state.ploom
+          amazonMusic: !!state.amazonMusic,
+          ploom: !!state.ploom
         });
         
         var fileNum = (i + 2) + ".png";
         if (hasZip) {
-          var blobN = await canvasToBlob(exportCanvas);
+          var blobN = await canvasToBlob(_c);
           folder.file(fileNum, blobN);
         } else {
-          if (isMobile) { mobileImages.push(await canvasToDataURL(exportCanvas)); } else { await downloadCanvas(exportCanvas, fileNum); }
+          if (isMobile) { mobileImages.push(await canvasToDataURL(_c)); } else { await downloadCanvas(_c, fileNum); }
         }
       }
     }
@@ -6957,6 +6951,26 @@ function drawAmazonMusic(ctx, posKey) {
 
 
 
+
+// ═══ DICITURA PLOOM ═══
+var _dicPloomImg = new Image();
+var _dicPloomReady = false;
+_dicPloomImg.onload = function() { _dicPloomReady = true; if (typeof render === "function") render(); };
+_dicPloomImg.src = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0iTGl2ZWxsb18yIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDU4MS4yIDcxLjgiPgogIDwhLS0gR2VuZXJhdG9yOiBBZG9iZSBJbGx1c3RyYXRvciAzMC41LjEsIFNWRyBFeHBvcnQgUGx1Zy1JbiAuIFNWRyBWZXJzaW9uOiAyLjEuNCBCdWlsZCAzKSAgLS0+CiAgPGRlZnM+CiAgICA8c3R5bGU+CiAgICAgIC5zdDAsIC5zdDEgewogICAgICAgIGlzb2xhdGlvbjogaXNvbGF0ZTsKICAgICAgfQoKICAgICAgLnN0MSB7CiAgICAgICAgZmlsbDogI2VmZWNkZTsKICAgICAgICBmb250LWZhbWlseTogTWFyY2luQW50aXF1ZVN0YW5kYXJkLVNlbWlib2xkLCAnTWFyY2luIEFudGlxdWUnOwogICAgICAgIGZvbnQtc2l6ZTogMjBweDsKICAgICAgICBmb250LXdlaWdodDogNjAwOwogICAgICB9CiAgICA8L3N0eWxlPgogIDwvZGVmcz4KICA8ZyBjbGFzcz0ic3QwIj4KICAgIDxnIGNsYXNzPSJzdDAiPgogICAgICA8dGV4dCBjbGFzcz0ic3QxIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwIDE3LjIpIj48dHNwYW4geD0iMCIgeT0iMCI+UFJPRE9UVE8gREVTVElOQVRPIEVTQ0xVU0lWQU1FTlRFIEEgQ09OU1VNQVRPUkk8L3RzcGFuPjwvdGV4dD4KICAgIDwvZz4KICAgIDxnIGNsYXNzPSJzdDAiPgogICAgICA8dGV4dCBjbGFzcz0ic3QxIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwIDQyLjIpIj48dHNwYW4geD0iMCIgeT0iMCI+QURVTFRJLiDDiCBQUkVWSVNUTyBM4oCZVVNPIERJIFNUSUNLIENPTlRFTkVOVEkgTklDT1RJTkEsPC90c3Bhbj48L3RleHQ+CiAgICA8L2c+CiAgICA8ZyBjbGFzcz0ic3QwIj4KICAgICAgPHRleHQgY2xhc3M9InN0MSIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCA2Ny4yKSI+PHRzcGFuIHg9IjAiIHk9IjAiPlVOQSBTT1NUQU5aQSBDSEUgQ1JFQSBESVBFTkRFTlpBLjwvdHNwYW4+PC90ZXh0PgogICAgPC9nPgogIDwvZz4KPC9zdmc+";
+
+function drawDicituraPloom(ctx, posizione) {
+  if (!_dicPloomReady) return;
+  var W = ctx.canvas ? ctx.canvas.width : 1080;
+  var H = ctx.canvas ? ctx.canvas.height : 1440;
+  var scale = W / 1080;
+  var dw = Math.round(592.2 * scale);
+  var dh = Math.round(71.8 * scale);
+  var dx = Math.round(315 * scale);
+  var dy = (posizione === "alto")
+    ? Math.round(45 * scale)
+    : Math.round(H - Math.round(90 * scale) - dh);
+  try { ctx.drawImage(_dicPloomImg, dx, dy, dw, dh); } catch(e) {}
+}
 </script>
 <!-- FULLSCREEN PREVIEW (solo mobile) -->
 <div id="fullPreviewOverlay" style="display:none;position:fixed;inset:0;background:#111;z-index:9998;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;">
