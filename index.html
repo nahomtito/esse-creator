@@ -2090,7 +2090,8 @@ function handleFoto(input) {
         zone.classList.add("has-image"); zone.innerHTML = "";
         var vid = document.createElement("video"); vid.src=url; vid.muted=true; vid.loop=true; vid.autoplay=true; vid.playsInline=true; vid.style.cssText="width:100%;height:100%;object-fit:cover;";
         var badge = document.createElement("div"); badge.className="upscale-badge done"; badge.textContent="Video "+video.videoWidth+"x"+video.videoHeight;
-        var btn = document.createElement("button"); btn.className="up-change"; btn.textContent="Cambia"; btn.onclick=function(e){e.stopPropagation();document.getElementById("fotoInput").click();};
+        var btn = document.createElement("button"); btn.className="up-change"; btn.textContent="Cambia";
+        btn.onclick=function(e){e.stopPropagation();document.getElementById("fotoInput").click();};
         zone.appendChild(vid); zone.appendChild(badge); zone.appendChild(btn);
       }
       video.play().catch(function(){}); if(typeof startVideoLoop==="function") startVideoLoop(video); render();
@@ -2214,10 +2215,13 @@ function updateCharCount() {
 // SLIDES
 // ============================================================
 function addSlide() {
+  // Eredita fonte dalla prima slide se presente
+  var _defaultFonteChi  = (state.slides.length > 0 && state.slides[0].fonteChi)  ? state.slides[0].fonteChi  : "";
+  var _defaultFonteDove = (state.slides.length > 0 && state.slides[0].fonteDove) ? state.slides[0].fonteDove : "";
   state.slides.push({
     testo: "",
-    fonteChi: "",
-    fonteDove: "",
+    fonteChi: _defaultFonteChi,
+    fonteDove: _defaultFonteDove,
     variante: "1",
     align: "left",
     textCase: "normal",
@@ -3967,9 +3971,7 @@ function renderCitazione(ctx, canvas, data) {
   // Sfondo (foto/blur/black o griglia multi-immagine) — skip se trasparente
   var fotosArrCit = buildFotosArrayForRender(data.foto, data.fotoTransform, data.fotosExtra);
   if (data.blackBackground) {
-    // Fondo nero sempre, anche in modalità transparent
-    ctx.fillStyle = "#1C1F1C";
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#1C1F1C"; ctx.fillRect(0, 0, W, H);
   } else if (!data.transparent) {
     if (fotosArrCit.length > 1) {
       drawImagesGrid(ctx, fotosArrCit, 0, 0, W, H, null, 0, false);
@@ -4177,7 +4179,6 @@ function renderCitazione(ctx, canvas, data) {
   if (data.ploom) {
     var _plCitPos = (v === "3" || v === "4") ? "basso-destra" : "alto-destra";
     drawPloom(ctx, _plCitPos);
-    drawDicituraPloom(ctx, (v === "3" || v === "4") ? "alto" : "basso");
   }
 }
 
@@ -5729,8 +5730,8 @@ async function recordCanvasAsVideo(videoEl, canvasEl, renderFn, durationMs) {
     recorder.ondataavailable=function(e){if(e.data&&e.data.size>0)chunks.push(e.data);};
     recorder.onstop=function(){var blob=new Blob(chunks,{type:mimeType});resolve({blob:blob,mimeType:mimeType.indexOf("mp4")!==-1?"video/mp4":mimeType});};
     recorder.onerror=function(e){stopVideoLoop();reject(e.error||new Error("Errore"));};
-    videoEl.currentTime=0;videoEl.muted=true;videoEl.loop=false;videoEl.playbackRate=1.0;
-    var stopped=false,rafId=null;
+    videoEl.currentTime=0; videoEl.muted=true; videoEl.loop=false; videoEl.playbackRate=1.0;
+    var stopped=false, rafId=null;
     function tick(){if(stopped)return;renderFn();rafId=requestAnimationFrame(tick);}
     videoEl.onplaying=function(){recorder.start(33);tick();};
     videoEl.onended=function(){if(stopped)return;stopped=true;if(rafId)cancelAnimationFrame(rafId);renderFn();setTimeout(function(){if(recorder.state==="recording")recorder.stop();},200);};
@@ -5956,11 +5957,7 @@ async function exportAll() {
         
         var renderFnC = (function(citaz, isLast) {
           return function() {
-        var _cNoFoto = !(citaz.fotoImg) && !(citaz.fotosExtra && citaz.fotosExtra.length>0);
-        var _cNero = !!citaz.blackBackground;
-        var _cCvs = (_cNoFoto && !_cNero) ? makeTransparentCanvas(1080,1440) : exportCanvas;
-        var _cCtx = (_cNoFoto && !_cNero) ? _cCvs.getContext("2d") : exportCtx;
-        renderCitazione(_cCtx, _cCvs, {
+            renderCitazione(exportCtx, exportCanvas, {
               testo: citaz.testo,
               fonteChi: citaz.fonteChi,
               fonteDove: citaz.fonteDove,
@@ -5997,7 +5994,6 @@ async function exportAll() {
       } else {
         var _noCitFoto = !(s.fotoImg) && !(s.fotosExtra && s.fotosExtra.length > 0);
         var _hasNero = !!s.blackBackground;
-        // Se no foto e no fondo nero → PNG trasparente; se fondo nero → sfondo nero opaco
         var _citCvsFin = (_noCitFoto && !_hasNero) ? makeTransparentCanvas(1080,1440) : exportCanvas;
         var _citXFin   = (_noCitFoto && !_hasNero) ? _citCvsFin.getContext("2d") : exportCtx;
         _citXFin.clearRect(0, 0, 1080, 1440);
@@ -6196,11 +6192,11 @@ function renderCitazioneList() {
       
       // CHI L'HA DETTO
       '<div class="cit-field-label">Chi l\'ha detto</div>' +
-      '<input type="text" class="fonte-input" placeholder="Es. SHIVA" value="' + (slide.fonteChi || '') + '" oninput="updateSlideFonteChi(' + i + ', this.value)" style="margin-bottom:8px;">' +
+      '<input type="text" class="fonte-input" data-field="chi" placeholder="Es. SHIVA" value="' + (slide.fonteChi || '') + '" oninput="updateSlideFonteChi(' + i + ', this.value)" style="margin-bottom:8px;">' +
       
       // DOVE L'HA DETTO
       '<div class="cit-field-label">Dove l\'ha detto</div>' +
-      '<input type="text" class="fonte-input" placeholder="Es. A BELVE" value="' + (slide.fonteDove || '') + '" oninput="updateSlideFonteDove(' + i + ', this.value)" style="margin-bottom:10px;">' +
+      '<input type="text" class="fonte-input" data-field="dove" placeholder="Es. A BELVE" value="' + (slide.fonteDove || '') + '" oninput="updateSlideFonteDove(' + i + ', this.value)" style="margin-bottom:10px;">' +
       
       // TESTO
       '<div class="cit-field-label">Testo della citazione</div>' +
@@ -6249,12 +6245,34 @@ function renderCitazioneList() {
 }
 
 function updateSlideFonteChi(i, val) {
+  var oldVal = state.slides[i].fonteChi;
   state.slides[i].fonteChi = val;
+  // Se è la slide 0, propaga agli altri input senza ricostruire il DOM
+  if (i === 0) {
+    var inputs = document.querySelectorAll("#citazioneList .fonte-input[data-field='chi']");
+    for (var j = 1; j < state.slides.length; j++) {
+      if (state.slides[j].fonteChi === oldVal || state.slides[j].fonteChi === "") {
+        state.slides[j].fonteChi = val;
+        if (inputs[j]) inputs[j].value = val;
+      }
+    }
+  }
   if (state.currentPreview - 1 === i) render();
 }
 
 function updateSlideFonteDove(i, val) {
+  var oldVal = state.slides[i].fonteDove;
   state.slides[i].fonteDove = val;
+  // Se è la slide 0, propaga agli altri input senza ricostruire il DOM
+  if (i === 0) {
+    var inputs = document.querySelectorAll("#citazioneList .fonte-input[data-field='dove']");
+    for (var j = 1; j < state.slides.length; j++) {
+      if (state.slides[j].fonteDove === oldVal || state.slides[j].fonteDove === "") {
+        state.slides[j].fonteDove = val;
+        if (inputs[j]) inputs[j].value = val;
+      }
+    }
+  }
   if (state.currentPreview - 1 === i) render();
 }
 
@@ -6904,7 +6922,13 @@ function drawPloom(ctx, posKey, offsetY) {
   } else {
     px = Math.round(W - 60 - lw); py_final = py_top;
   }
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = 12;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 4;
   try { ctx.drawImage(_ploomImg, px, py_final, lw, lh); } catch(e) {}
+  ctx.restore();
 }
 
 
@@ -6951,26 +6975,6 @@ function drawAmazonMusic(ctx, posKey) {
 
 
 
-
-// ═══ DICITURA PLOOM ═══
-var _dicPloomImg = new Image();
-var _dicPloomReady = false;
-_dicPloomImg.onload = function() { _dicPloomReady = true; if (typeof render === "function") render(); };
-_dicPloomImg.src = "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0iTGl2ZWxsb18yIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZlcnNpb249IjEuMSIgdmlld0JveD0iMCAwIDU4MS4yIDcxLjgiPgogIDwhLS0gR2VuZXJhdG9yOiBBZG9iZSBJbGx1c3RyYXRvciAzMC41LjEsIFNWRyBFeHBvcnQgUGx1Zy1JbiAuIFNWRyBWZXJzaW9uOiAyLjEuNCBCdWlsZCAzKSAgLS0+CiAgPGRlZnM+CiAgICA8c3R5bGU+CiAgICAgIC5zdDAsIC5zdDEgewogICAgICAgIGlzb2xhdGlvbjogaXNvbGF0ZTsKICAgICAgfQoKICAgICAgLnN0MSB7CiAgICAgICAgZmlsbDogI2VmZWNkZTsKICAgICAgICBmb250LWZhbWlseTogTWFyY2luQW50aXF1ZVN0YW5kYXJkLVNlbWlib2xkLCAnTWFyY2luIEFudGlxdWUnOwogICAgICAgIGZvbnQtc2l6ZTogMjBweDsKICAgICAgICBmb250LXdlaWdodDogNjAwOwogICAgICB9CiAgICA8L3N0eWxlPgogIDwvZGVmcz4KICA8ZyBjbGFzcz0ic3QwIj4KICAgIDxnIGNsYXNzPSJzdDAiPgogICAgICA8dGV4dCBjbGFzcz0ic3QxIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwIDE3LjIpIj48dHNwYW4geD0iMCIgeT0iMCI+UFJPRE9UVE8gREVTVElOQVRPIEVTQ0xVU0lWQU1FTlRFIEEgQ09OU1VNQVRPUkk8L3RzcGFuPjwvdGV4dD4KICAgIDwvZz4KICAgIDxnIGNsYXNzPSJzdDAiPgogICAgICA8dGV4dCBjbGFzcz0ic3QxIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwIDQyLjIpIj48dHNwYW4geD0iMCIgeT0iMCI+QURVTFRJLiDDiCBQUkVWSVNUTyBM4oCZVVNPIERJIFNUSUNLIENPTlRFTkVOVEkgTklDT1RJTkEsPC90c3Bhbj48L3RleHQ+CiAgICA8L2c+CiAgICA8ZyBjbGFzcz0ic3QwIj4KICAgICAgPHRleHQgY2xhc3M9InN0MSIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCA2Ny4yKSI+PHRzcGFuIHg9IjAiIHk9IjAiPlVOQSBTT1NUQU5aQSBDSEUgQ1JFQSBESVBFTkRFTlpBLjwvdHNwYW4+PC90ZXh0PgogICAgPC9nPgogIDwvZz4KPC9zdmc+";
-
-function drawDicituraPloom(ctx, posizione) {
-  if (!_dicPloomReady) return;
-  var W = ctx.canvas ? ctx.canvas.width : 1080;
-  var H = ctx.canvas ? ctx.canvas.height : 1440;
-  var scale = W / 1080;
-  var dw = Math.round(592.2 * scale);
-  var dh = Math.round(71.8 * scale);
-  var dx = Math.round(315 * scale);
-  var dy = (posizione === "alto")
-    ? Math.round(45 * scale)
-    : Math.round(H - Math.round(90 * scale) - dh);
-  try { ctx.drawImage(_dicPloomImg, dx, dy, dw, dh); } catch(e) {}
-}
 </script>
 <!-- FULLSCREEN PREVIEW (solo mobile) -->
 <div id="fullPreviewOverlay" style="display:none;position:fixed;inset:0;background:#111;z-index:9998;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;">
