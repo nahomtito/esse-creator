@@ -2075,30 +2075,7 @@ function setVarianteApertura(v) {
 function handleFoto(input) {
   if (!input.files || !input.files[0]) return;
   var file = input.files[0];
-  if (file.type.indexOf("video") === 0) {
-    var url = URL.createObjectURL(file);
-    var video = document.createElement("video");
-    video.src = url; video.muted = true; video.loop = true; video.playsInline = true;
-    video.crossOrigin = "anonymous"; video.preload = "auto";
-    video.onloadedmetadata = function() {
-      video.naturalWidth = video.videoWidth; video.naturalHeight = video.videoHeight; video._isVideo = true;
-      state.foto = url; state.fotoImg = video;
-      state.fotoTransform = {offsetX:0,offsetY:0,scale:1}; state.fotoBlur = 0; state.blackBackground = false;
-      if (typeof updateApEffectButtons === "function") updateApEffectButtons();
-      var zone = document.getElementById("uploadZone");
-      if (zone) {
-        zone.classList.add("has-image"); zone.innerHTML = "";
-        var vid = document.createElement("video"); vid.src=url; vid.muted=true; vid.loop=true; vid.autoplay=true; vid.playsInline=true; vid.style.cssText="width:100%;height:100%;object-fit:cover;";
-        var badge = document.createElement("div"); badge.className="upscale-badge done"; badge.textContent="Video "+video.videoWidth+"x"+video.videoHeight;
-        var btn = document.createElement("button"); btn.className="up-change"; btn.textContent="Cambia";
-        btn.onclick=function(e){e.stopPropagation();document.getElementById("fotoInput").click();};
-        zone.appendChild(vid); zone.appendChild(badge); zone.appendChild(btn);
-      }
-      video.play().catch(function(){}); if(typeof startVideoLoop==="function") startVideoLoop(video); render();
-    };
-    video.onerror=function(){showStatus("Errore video","error");};
-    return;
-  }
+  var isVideo = file.type.indexOf("video") === 0;
   var reader = new FileReader();
   reader.onload = function(e) {
     state.foto = e.target.result;
@@ -2215,13 +2192,10 @@ function updateCharCount() {
 // SLIDES
 // ============================================================
 function addSlide() {
-  // Eredita fonte dalla prima slide se presente
-  var _defaultFonteChi  = (state.slides.length > 0 && state.slides[0].fonteChi)  ? state.slides[0].fonteChi  : "";
-  var _defaultFonteDove = (state.slides.length > 0 && state.slides[0].fonteDove) ? state.slides[0].fonteDove : "";
   state.slides.push({
     testo: "",
-    fonteChi: _defaultFonteChi,
-    fonteDove: _defaultFonteDove,
+    fonteChi: "",
+    fonteDove: "",
     variante: "1",
     align: "left",
     textCase: "normal",
@@ -2361,73 +2335,72 @@ function handleSlideFoto(i, input) {
   if (!input.files || !input.files[0]) return;
   var file = input.files[0];
   var isVideo = file.type.indexOf("video") === 0;
+
+  if (isVideo) {
+    var url = URL.createObjectURL(file);
+    var video = document.createElement("video");
+    video.src = url; video.muted = true; video.loop = true; video.playsInline = true;
+    video.crossOrigin = "anonymous"; video.preload = "auto";
+    video.onloadedmetadata = function() {
+      video.naturalWidth = video.videoWidth; video.naturalHeight = video.videoHeight; video._isVideo = true;
+      state.slides[i].foto = url; state.slides[i].fotoImg = video;
+      state.slides[i].fotoTransform = { offsetX: 0, offsetY: 0, scale: 1 };
+      state.slides[i].fotoBlur = 0; state.slides[i].blackBackground = false;
+      _refreshSlideUI(i);
+      video.play().catch(function(){});
+      if (typeof startVideoLoop === "function") startVideoLoop(video);
+    };
+    video.onerror = function() { showStatus("Errore video", "error"); };
+    return;
+  }
+
   var reader = new FileReader();
   reader.onload = function(e) {
     state.slides[i].foto = e.target.result;
-    
-    if (isVideo) {
-      var video = document.createElement("video");
-      video.src = e.target.result;
-      video.muted = true;
-      video.loop = true;
-      video.playsInline = true;
-      video.crossOrigin = "anonymous";
-      video.onloadedmetadata = function() {
-        video.naturalWidth = video.videoWidth;
-        video.naturalHeight = video.videoHeight;
-        video._isVideo = true;
-        
-        state.slides[i].fotoImg = video;
-        state.slides[i].fotoTransform = { offsetX: 0, offsetY: 0, scale: 1 };
-        state.slides[i].fotoBlur = 0;
-        state.slides[i].blackBackground = false;
-        
-        if (state.tipo === "citazione" && typeof renderCitazioneList === "function") renderCitazioneList();
-        else if (state.tipo === "apertura" && typeof renderAperturaList === "function") renderAperturaList();
-        else renderSlideList();
-        
-        video.play().catch(function(){});
-        if (typeof startVideoLoop === "function") startVideoLoop(video);
-        if (state.currentPreview - 1 === i) render();
-      };
-      return;
-    }
-    
     var img = new Image();
     img.onload = function() {
       state.slides[i].fotoTransform = { offsetX: 0, offsetY: 0, scale: 1 };
-      state.slides[i].fotoBlur = 0;
-      state.slides[i].blackBackground = false;
-      
+      state.slides[i].fotoBlur = 0; state.slides[i].blackBackground = false;
       if (needsUpscaling(img)) {
-        // Imposta subito la versione originale
         state.slides[i].fotoImg = img;
-        renderSlideList();
-        if (state.currentPreview - 1 === i) {
-          updateToolbarVisibility();
-          render();
-        }
-        
-        // Upscale in background
+        _refreshSlideUI(i);
         showStatus("Migliorando qualità slide " + (i+1) + "…", "loading");
         upscaleImage(img, MIN_DIMENSION).then(function(upscaledImg) {
           state.slides[i].fotoImg = upscaledImg;
-          renderSlideList();
-          if (state.currentPreview - 1 === i) render();
-          showStatus("✓ Slide " + (i+1) + " upscalata: " + upscaledImg.naturalWidth + "×" + upscaledImg.naturalHeight, "success");
+          _refreshSlideUI(i);
+          showStatus("✓ Slide " + (i+1) + " upscalata", "success");
         });
       } else {
         state.slides[i].fotoImg = img;
-        renderSlideList();
-        if (state.currentPreview - 1 === i) {
-          updateToolbarVisibility();
-          render();
-        }
+        _refreshSlideUI(i);
       }
     };
     img.src = e.target.result;
   };
-  reader.readAsDataURL(input.files[0]);
+  reader.readAsDataURL(file);
+}
+
+function _refreshSlideUI(i) {
+  // Aggiorna solo l'anteprima e il thumb della slide i, senza ricostruire tutto il DOM
+  if (state.tipo === "citazione" && typeof renderCitazioneList === "function") renderCitazioneList();
+  else if (state.tipo === "apertura" && typeof renderAperturaList === "function") renderAperturaList();
+  // Per slide: aggiorna solo il thumb visivo della card corrente
+  else {
+    var thumbDiv = document.querySelector("#slideList .slide-card[data-idx='" + i + "'] .slide-photo-thumb");
+    if (thumbDiv && state.slides[i]) {
+      var s = state.slides[i];
+      if (s.fotoImg && s.fotoImg._isVideo) {
+        thumbDiv.innerHTML = '<video src="' + s.foto + '" muted loop autoplay playsinline></video>';
+      } else if (s.foto) {
+        thumbDiv.innerHTML = '<img src="' + s.foto + '">';
+      }
+      var nameDiv = thumbDiv.parentNode ? thumbDiv.parentNode.querySelector('.slide-photo-name') : null;
+      if (nameDiv) nameDiv.textContent = 'Foto caricata';
+    }
+  }
+  updateToolbarVisibility();
+  // Aggiorna il canvas solo se questa è la slide attiva
+  if (state.currentPreview - 1 === i || state.currentPreview === 0) render();
 }
 
 function renderTitolettiList() {
@@ -3970,13 +3943,11 @@ function renderCitazione(ctx, canvas, data) {
   
   // Sfondo (foto/blur/black o griglia multi-immagine) — skip se trasparente
   var fotosArrCit = buildFotosArrayForRender(data.foto, data.fotoTransform, data.fotosExtra);
-  if (data.blackBackground) {
-    ctx.fillStyle = "#1C1F1C"; ctx.fillRect(0, 0, W, H);
-  } else if (!data.transparent) {
+  if (!data.transparent) {
     if (fotosArrCit.length > 1) {
       drawImagesGrid(ctx, fotosArrCit, 0, 0, W, H, null, 0, false);
     } else {
-      drawImageCover(ctx, data.foto, 0, 0, W, H, data.fotoTransform, data.fotoFilters, data.fotoBlur, false);
+      drawImageCover(ctx, data.foto, 0, 0, W, H, data.fotoTransform, data.fotoFilters, data.fotoBlur, data.blackBackground);
     }
   }
   
@@ -5716,31 +5687,127 @@ function canvasToBlob(canvas) {
 
 // Registra il canvas come video. Restituisce sempre MP4 (converte se necessario).
 async function recordCanvasAsVideo(videoEl, canvasEl, renderFn, durationMs) {
-  var loadingEl = document.getElementById("loadingText");
-  if (loadingEl) loadingEl.textContent = "Registrazione video...";
-  return new Promise(function(resolve, reject) {
-    if (!canvasEl.captureStream) { reject(new Error("captureStream non supportato")); return; }
-    var stream = canvasEl.captureStream(30);
-    var mimeType = "";
-    var fmts = ["video/mp4;codecs=avc1.42E01E","video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"];
-    for (var i=0;i<fmts.length;i++) { try{if(MediaRecorder.isTypeSupported(fmts[i])){mimeType=fmts[i];break;}}catch(e){} }
-    if (!mimeType) { reject(new Error("Nessun formato video supportato")); return; }
-    var recorder; try{recorder=new MediaRecorder(stream,{mimeType:mimeType,videoBitsPerSecond:8000000});}catch(e){reject(e);return;}
-    var chunks=[];
-    recorder.ondataavailable=function(e){if(e.data&&e.data.size>0)chunks.push(e.data);};
-    recorder.onstop=function(){var blob=new Blob(chunks,{type:mimeType});resolve({blob:blob,mimeType:mimeType.indexOf("mp4")!==-1?"video/mp4":mimeType});};
-    recorder.onerror=function(e){stopVideoLoop();reject(e.error||new Error("Errore"));};
-    videoEl.currentTime=0; videoEl.muted=true; videoEl.loop=false; videoEl.playbackRate=1.0;
-    var stopped=false, rafId=null;
-    function tick(){if(stopped)return;renderFn();rafId=requestAnimationFrame(tick);}
-    videoEl.onplaying=function(){recorder.start(33);tick();};
-    videoEl.onended=function(){if(stopped)return;stopped=true;if(rafId)cancelAnimationFrame(rafId);renderFn();setTimeout(function(){if(recorder.state==="recording")recorder.stop();},200);};
-    setTimeout(function(){if(recorder.state==="recording"){stopped=true;if(rafId)cancelAnimationFrame(rafId);recorder.stop();}},durationMs+5000);
-    videoEl.play().catch(function(e){reject(new Error("Play fallito: "+e.message));});
-  });
+  const loadingEl = document.getElementById("loadingText");
+
+  var ffmpegOk = false;
+  try {
+    if (typeof window.__getFFmpeg === "function") {
+      await window.__getFFmpeg();
+      ffmpegOk = true;
+    }
+  } catch(err) {
+    console.warn("[record] FFmpeg non disponibile:", err.message);
+  }
+
+  var FPS = 30;
+  var frameInterval = 1 / FPS;
+  if (loadingEl) loadingEl.textContent = "Estrazione frame…";
+
+  try {
+    var dur = videoEl.duration || (durationMs / 1000);
+    var actualFrames = Math.ceil(dur * FPS);
+    var frames = [];
+
+    for (var fi = 0; fi < actualFrames; fi++) {
+      videoEl.currentTime = fi * frameInterval;
+      await new Promise(function(res) {
+        var done = false;
+        var t = setTimeout(function() { if (!done) { done=true; res(); } }, 150);
+        videoEl.onseeked = function() { if (!done) { done=true; clearTimeout(t); res(); } };
+      });
+      renderFn();
+      frames.push(await createImageBitmap(canvasEl));
+      if (fi % 5 === 0 && loadingEl) loadingEl.textContent = "Frame " + fi + "/" + actualFrames + "…";
+    }
+
+    if (loadingEl) loadingEl.textContent = "Assemblaggio video…";
+
+    return await new Promise(function(resolve, reject) {
+      if (!canvasEl.captureStream) { reject(new Error("captureStream non supportato")); return; }
+      var canvasStream = canvasEl.captureStream(FPS);
+      var mimeType = "";
+      var fmts = ["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm;codecs=vp8","video/webm"];
+      for (var i=0;i<fmts.length;i++) { if (MediaRecorder.isTypeSupported(fmts[i])) { mimeType=fmts[i]; break; } }
+      if (!mimeType) { reject(new Error("Nessun formato video supportato")); return; }
+
+      var recorder;
+      try { recorder = new MediaRecorder(canvasStream, { mimeType: mimeType, videoBitsPerSecond: 10000000 }); }
+      catch(e) { reject(e); return; }
+
+      var chunks = [];
+      recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = async function() {
+        var rawBlob = new Blob(chunks, { type: mimeType });
+        console.log("[record] Done:", rawBlob.size, "bytes", mimeType);
+        if (ffmpegOk && typeof window.__convertToMp4 === "function" && mimeType.indexOf("mp4") === -1) {
+          try {
+            if (loadingEl) loadingEl.textContent = "Conversione MP4…";
+            var mp4Blob = await window.__convertToMp4(rawBlob, mimeType);
+            resolve({ blob: mp4Blob, mimeType: "video/mp4" }); return;
+          } catch(e) { console.warn("[record] MP4 conv fallita:", e); }
+        }
+        resolve({ blob: rawBlob, mimeType: mimeType });
+      };
+      recorder.onerror = function(e) { reject(e); };
+      recorder.start(100);
+
+      var ctx2 = canvasEl.getContext("2d");
+      var msPerFrame = 1000 / FPS;
+      var frameIdx = 0;
+      function nextFrame() {
+        if (frameIdx >= frames.length) {
+          setTimeout(function() { if (recorder.state === "recording") recorder.stop(); }, 200);
+          return;
+        }
+        ctx2.drawImage(frames[frameIdx], 0, 0);
+        frameIdx++;
+        setTimeout(nextFrame, msPerFrame);
+      }
+      nextFrame();
+    });
+
+  } catch(fastErr) {
+    console.warn("[record] Fast path fallito, uso real-time:", fastErr);
+    if (loadingEl) loadingEl.textContent = "Registrazione video…";
+
+    return new Promise(function(resolve, reject) {
+      if (!canvasEl.captureStream) { reject(new Error("captureStream non supportato")); return; }
+      var canvasStream = canvasEl.captureStream(30);
+      var mimeType = "";
+      var fmts = ["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];
+      for (var i=0;i<fmts.length;i++) { if (MediaRecorder.isTypeSupported(fmts[i])) { mimeType=fmts[i]; break; } }
+      if (!mimeType) { reject(new Error("Nessun formato video supportato")); return; }
+
+      var recorder;
+      try { recorder = new MediaRecorder(canvasStream, { mimeType: mimeType, videoBitsPerSecond: 10000000 }); }
+      catch(e) { reject(e); return; }
+
+      var chunks = [];
+      recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = async function() {
+        stopVideoLoop();
+        var rawBlob = new Blob(chunks, { type: mimeType });
+        if (ffmpegOk && typeof window.__convertToMp4 === "function" && mimeType.indexOf("mp4") === -1) {
+          try { var mp4 = await window.__convertToMp4(rawBlob, mimeType); resolve({ blob: mp4, mimeType: "video/mp4" }); return; } catch(e) {}
+        }
+        resolve({ blob: rawBlob, mimeType: mimeType });
+      };
+      recorder.onerror = function(e) { stopVideoLoop(); reject(e); };
+      videoEl.currentTime = 0; videoEl.muted = true; videoEl.loop = false;
+      var stopRequested = false, rafId = null;
+      function renderTick() { if (stopRequested) return; renderFn(); rafId = requestAnimationFrame(renderTick); }
+      videoEl.onplaying = function() { recorder.start(100); renderTick(); };
+      videoEl.onended = function() {
+        stopRequested = true; if (rafId) cancelAnimationFrame(rafId);
+        if (recorder.state === "recording") setTimeout(function() { if (recorder.state === "recording") recorder.stop(); }, 100);
+      };
+      setTimeout(function() {
+        if (recorder.state === "recording") { stopRequested = true; if (rafId) cancelAnimationFrame(rafId); recorder.stop(); }
+      }, Math.min(durationMs * 1.5, 60000));
+      videoEl.play().catch(reject);
+    });
+  }
 }
-
-
 
 
 // Verifica se una slide/post ha un video di sfondo
@@ -5993,10 +6060,8 @@ async function exportAll() {
         }
       } else {
         var _noCitFoto = !(s.fotoImg) && !(s.fotosExtra && s.fotosExtra.length > 0);
-        var _hasNero = !!s.blackBackground;
-        var _citCvsFin = (_noCitFoto && !_hasNero) ? makeTransparentCanvas(1080,1440) : exportCanvas;
-        var _citXFin   = (_noCitFoto && !_hasNero) ? _citCvsFin.getContext("2d") : exportCtx;
-        _citXFin.clearRect(0, 0, 1080, 1440);
+        var _citCvsFin = _noCitFoto ? makeTransparentCanvas(1080,1440) : exportCanvas;
+        var _citXFin   = _noCitFoto ? _citCvsFin.getContext("2d") : exportCtx;
         renderCitazione(_citXFin, _citCvsFin, {
           testo: s.testo,
           fonteChi: s.fonteChi,
@@ -6012,7 +6077,7 @@ async function exportAll() {
           blackBackground: s.blackBackground,
           fotosExtra: s.fotosExtra,
           mostraFreccia: !isLastCitExp,
-          transparent: (_noCitFoto && !_hasNero)
+          transparent: _noCitFoto
         });
         
         var fileNum = (i + 1) + ".png";
@@ -6192,11 +6257,11 @@ function renderCitazioneList() {
       
       // CHI L'HA DETTO
       '<div class="cit-field-label">Chi l\'ha detto</div>' +
-      '<input type="text" class="fonte-input" data-field="chi" placeholder="Es. SHIVA" value="' + (slide.fonteChi || '') + '" oninput="updateSlideFonteChi(' + i + ', this.value)" style="margin-bottom:8px;">' +
+      '<input type="text" class="fonte-input" placeholder="Es. SHIVA" value="' + (slide.fonteChi || '') + '" oninput="updateSlideFonteChi(' + i + ', this.value)" style="margin-bottom:8px;">' +
       
       // DOVE L'HA DETTO
       '<div class="cit-field-label">Dove l\'ha detto</div>' +
-      '<input type="text" class="fonte-input" data-field="dove" placeholder="Es. A BELVE" value="' + (slide.fonteDove || '') + '" oninput="updateSlideFonteDove(' + i + ', this.value)" style="margin-bottom:10px;">' +
+      '<input type="text" class="fonte-input" placeholder="Es. A BELVE" value="' + (slide.fonteDove || '') + '" oninput="updateSlideFonteDove(' + i + ', this.value)" style="margin-bottom:10px;">' +
       
       // TESTO
       '<div class="cit-field-label">Testo della citazione</div>' +
@@ -6245,34 +6310,12 @@ function renderCitazioneList() {
 }
 
 function updateSlideFonteChi(i, val) {
-  var oldVal = state.slides[i].fonteChi;
   state.slides[i].fonteChi = val;
-  // Se è la slide 0, propaga agli altri input senza ricostruire il DOM
-  if (i === 0) {
-    var inputs = document.querySelectorAll("#citazioneList .fonte-input[data-field='chi']");
-    for (var j = 1; j < state.slides.length; j++) {
-      if (state.slides[j].fonteChi === oldVal || state.slides[j].fonteChi === "") {
-        state.slides[j].fonteChi = val;
-        if (inputs[j]) inputs[j].value = val;
-      }
-    }
-  }
   if (state.currentPreview - 1 === i) render();
 }
 
 function updateSlideFonteDove(i, val) {
-  var oldVal = state.slides[i].fonteDove;
   state.slides[i].fonteDove = val;
-  // Se è la slide 0, propaga agli altri input senza ricostruire il DOM
-  if (i === 0) {
-    var inputs = document.querySelectorAll("#citazioneList .fonte-input[data-field='dove']");
-    for (var j = 1; j < state.slides.length; j++) {
-      if (state.slides[j].fonteDove === oldVal || state.slides[j].fonteDove === "") {
-        state.slides[j].fonteDove = val;
-        if (inputs[j]) inputs[j].value = val;
-      }
-    }
-  }
   if (state.currentPreview - 1 === i) render();
 }
 
@@ -6922,13 +6965,7 @@ function drawPloom(ctx, posKey, offsetY) {
   } else {
     px = Math.round(W - 60 - lw); py_final = py_top;
   }
-  ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.5)";
-  ctx.shadowBlur = 12;
-  ctx.shadowOffsetX = 0;
-  ctx.shadowOffsetY = 4;
   try { ctx.drawImage(_ploomImg, px, py_final, lw, lh); } catch(e) {}
-  ctx.restore();
 }
 
 
