@@ -2192,10 +2192,12 @@ function updateCharCount() {
 // SLIDES
 // ============================================================
 function addSlide() {
+  var _fc = (state.slides.length > 0) ? state.slides[0].fonteChi  : "";
+  var _fd = (state.slides.length > 0) ? state.slides[0].fonteDove : "";
   state.slides.push({
     testo: "",
-    fonteChi: "",
-    fonteDove: "",
+    fonteChi: _fc,
+    fonteDove: _fd,
     variante: "1",
     align: "left",
     textCase: "normal",
@@ -6257,11 +6259,11 @@ function renderCitazioneList() {
       
       // CHI L'HA DETTO
       '<div class="cit-field-label">Chi l\'ha detto</div>' +
-      '<input type="text" class="fonte-input" placeholder="Es. SHIVA" value="' + (slide.fonteChi || '') + '" oninput="updateSlideFonteChi(' + i + ', this.value)" style="margin-bottom:8px;">' +
+      '<input type="text" class="fonte-input" data-field="chi" placeholder="Es. SHIVA" value="' + (slide.fonteChi || '') + '" oninput="updateSlideFonteChi(' + i + ', this.value)" style="margin-bottom:8px;">' +
       
       // DOVE L'HA DETTO
       '<div class="cit-field-label">Dove l\'ha detto</div>' +
-      '<input type="text" class="fonte-input" placeholder="Es. A BELVE" value="' + (slide.fonteDove || '') + '" oninput="updateSlideFonteDove(' + i + ', this.value)" style="margin-bottom:10px;">' +
+      '<input type="text" class="fonte-input" data-field="dove" placeholder="Es. A BELVE" value="' + (slide.fonteDove || '') + '" oninput="updateSlideFonteDove(' + i + ', this.value)" style="margin-bottom:10px;">' +
       
       // TESTO
       '<div class="cit-field-label">Testo della citazione</div>' +
@@ -6310,13 +6312,35 @@ function renderCitazioneList() {
 }
 
 function updateSlideFonteChi(i, val) {
+  var oldVal = state.slides[i].fonteChi;
   state.slides[i].fonteChi = val;
   if (state.currentPreview - 1 === i) render();
+  // Se slide 0: propaga silenziosamente agli altri input che avevano stesso valore
+  if (i === 0) {
+    for (var j = 1; j < state.slides.length; j++) {
+      if (state.slides[j].fonteChi === oldVal || state.slides[j].fonteChi === "") {
+        state.slides[j].fonteChi = val;
+        var inp = document.querySelector("#citazioneList .slide-card:nth-child(" + (j+1) + ") input[data-field='chi']");
+        if (inp) inp.value = val;
+      }
+    }
+  }
 }
 
 function updateSlideFonteDove(i, val) {
+  var oldVal = state.slides[i].fonteDove;
   state.slides[i].fonteDove = val;
   if (state.currentPreview - 1 === i) render();
+  // Se slide 0: propaga silenziosamente agli altri input che avevano stesso valore
+  if (i === 0) {
+    for (var j = 1; j < state.slides.length; j++) {
+      if (state.slides[j].fonteDove === oldVal || state.slides[j].fonteDove === "") {
+        state.slides[j].fonteDove = val;
+        var inp = document.querySelector("#citazioneList .slide-card:nth-child(" + (j+1) + ") input[data-field='dove']");
+        if (inp) inp.value = val;
+      }
+    }
+  }
 }
 
 function setSlideVariante(i, v) {
