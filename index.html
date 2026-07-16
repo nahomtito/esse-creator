@@ -3975,7 +3975,7 @@ function renderTitoletti(ctx, canvas, data) {
     // Dicitura SVG
     if (_titPloomDicReady) {
       var dicH = 90;
-      var dicW = Math.round(W - LEFT_PAD - SAFE_RIGHT);
+      var dicW = Math.round(dicH * (673.12 / 90.06));
       var dicX = (titAlign === "center") ? Math.round((W - dicW) / 2) : LEFT_PAD;
       var dicY = catBoxBottomY + 20;
       ctx.drawImage(_titPloomDicImg, dicX, dicY, dicW, dicH);
