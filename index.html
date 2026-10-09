@@ -1626,6 +1626,7 @@ button, .effect-btn, .preview-tab { touch-action: manipulation; }
     font-size: 12px !important;
   }
   .sb-footer .btn-primary { min-height: 46px; }
+  #btnExportAnim, #btnTitAnimToggle { display: none !important; }
 }
 </style>
 </head>
@@ -6243,9 +6244,9 @@ function setTipo(t) {
   var _bE = document.getElementById("btnExport");
   var _bA = document.getElementById("btnExportAnim");
   if (_bE) _bE.textContent = (t === "titoletti") ? "\u2193 Esporta PNG" : "\u2193 Esporta tutto";
-  if (_bA) _bA.style.display = (t === "titoletti") ? "" : "none";
+  if (_bA) _bA.style.display = (t === "titoletti" && !titIsMobile()) ? "" : "none";
   var _bT = document.getElementById("btnTitAnimToggle");
-  if (_bT) _bT.style.display = (t === "titoletti") ? "" : "none";
+  if (_bT) _bT.style.display = (t === "titoletti" && !titIsMobile()) ? "" : "none";
   if (t === "titoletti" && TIT_ANIM_ON) { startTitAnimPreview(); titSfxTryStart(); }
   else { TIT_PREVIEW_ANIM = null; titSfxStop(); }
   document.querySelectorAll(".tipo-card").forEach(function(c) {
@@ -11984,9 +11985,14 @@ function titSfxStop(){
   TIT_SRC=null;
 }
 function titSfxTryStart(){
-  if(typeof state!=="undefined"&&state&&state.tipo==="titoletti"&&TIT_ANIM_ON)titSfxStart();
+  if(typeof state!=="undefined"&&state&&state.tipo==="titoletti"&&TIT_ANIM_ON&&!titIsMobile())titSfxStart();
 }
 var TIT_PREVIEW_ANIM = null, _titAnimRaf = null, _titAnimT0 = 0, _titAnimLast = 0, TIT_ANIM_ON = true;
+function titIsMobile(){
+  try {
+    return (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || window.innerWidth <= 768;
+  } catch(e) { return false; }
+}
 function toggleTitAnimPreview(){
   TIT_ANIM_ON = !TIT_ANIM_ON;
   var b = document.getElementById("btnTitAnimToggle");
@@ -12005,7 +12011,7 @@ function titAnimFrame(t){
 }
 function titAnimTick(ts){
   _titAnimRaf = null;
-  if (!state || state.tipo !== "titoletti"){ TIT_PREVIEW_ANIM = null; titSfxStop(); return; }
+  if (!state || state.tipo !== "titoletti" || titIsMobile()){ TIT_PREVIEW_ANIM = null; titSfxStop(); return; }
   if (!TIT_ANIM_ON){ _titAnimRaf = requestAnimationFrame(titAnimTick); return; }
   var _tickMs = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) ? 80 : 38;
   if (!window.__titExporting && ts - _titAnimLast >= _tickMs){
@@ -12022,6 +12028,7 @@ function titAnimTick(ts){
   _titAnimRaf = requestAnimationFrame(titAnimTick);
 }
 function startTitAnimPreview(){
+  if (titIsMobile()) return;
   if (_titAnimRaf) return;
   _titAnimT0 = performance.now();
   _titAnimLast = 0;
