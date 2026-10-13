@@ -2506,7 +2506,7 @@ button { -webkit-tap-highlight-color: transparent; }
     <div class="preview-tabs" id="previewTabs">
       <button class="preview-tab active" data-page="0" onclick="setPreviewPage(0)">Apertura</button>
     </div>
-    <div class="preview-info">1080 × 1440 px · <span style="color:#fff172">m23</span></div>
+    <div class="preview-info">1080 × 1440 px · <span style="color:#fff172">m26</span></div>
   </div>
 
   <div class="preview-stage">
@@ -13994,10 +13994,28 @@ function lgDressBox(ctx, b) {
     ctx.beginPath();
     ctx.roundRect(b.x + inset, b.y + inset, b.w - inset * 2, b.h - inset * 2, Math.max(1, b.r - inset));
   };
+  /* velo scuro adattivo: piu la zona sotto il box e chiara, piu scurisce */
+  var _dk = 0.24;
+  try {
+    var _ix = Math.max(0, Math.round(b.x)), _iy = Math.max(0, Math.round(b.y));
+    var _iw = Math.max(1, Math.min(Math.round(b.w), ctx.canvas.width - _ix));
+    var _ih = Math.max(1, Math.min(Math.round(b.h), ctx.canvas.height - _iy));
+    var _id = ctx.getImageData(_ix, _iy, _iw, _ih).data;
+    var _s = 0, _n = 0;
+    for (var _q = 0; _q < _id.length; _q += 64) {
+      _s += _id[_q] * 0.299 + _id[_q + 1] * 0.587 + _id[_q + 2] * 0.114;
+      _n++;
+    }
+    if (_n) _dk = 0.22 + (_s / _n / 255) * 0.34;
+  } catch (e) {}
+  if (_dk < 0.22) _dk = 0.22;
+  if (_dk > 0.54) _dk = 0.54;
   ctx.save();
   _p(0);
   ctx.clip();
-  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillStyle = "rgba(8,10,8," + _dk.toFixed(3) + ")";
+  ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.fillStyle = "rgba(255,255,255,0.07)";
   ctx.fillRect(b.x, b.y, b.w, b.h);
   ctx.shadowColor = "rgba(255,255,255,0.35)";
   ctx.shadowBlur = 12;
