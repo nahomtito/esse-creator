@@ -2506,7 +2506,7 @@ button { -webkit-tap-highlight-color: transparent; }
     <div class="preview-tabs" id="previewTabs">
       <button class="preview-tab active" data-page="0" onclick="setPreviewPage(0)">Apertura</button>
     </div>
-    <div class="preview-info">1080 × 1440 px · <span style="color:#fff172">m26</span></div>
+    <div class="preview-info">1080 × 1440 px · <span style="color:#fff172">m39</span></div>
   </div>
 
   <div class="preview-stage">
@@ -8889,6 +8889,10 @@ function renderTitoletti(ctx, canvas, data) {
     _lineWordStart.push(_gwc);
     _gwc += lines[_lw].split(" ").filter(function(x){ return x.length > 0; }).length;
   }
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.65)";
+  ctx.shadowBlur = 3;
+  ctx.shadowOffsetY = 5;
   for (var i = 0; i < lines.length; i++) {
     var lineY = titleBoxTopY + i * LINE_HEIGHT;
     var baselineY = lineY + PAD_V + CAP_HEIGHT;
@@ -8935,6 +8939,7 @@ function renderTitoletti(ctx, canvas, data) {
       ctx.fillText(lines[i], bxX + INNER_PAD_X, baselineY);
     }
   }
+  ctx.restore();
 
   // === 4) BOX CATEGORIA ===
   if (data.categoria && data.categoria !== "NESSUNA" && (!_anim || _anim.catA > 0.01)) {
@@ -12702,6 +12707,7 @@ function maggInit(){
 'uniform float uGrade;',
 'uniform float uRefrScale;',
 'uniform float uLgMode;',
+'uniform float uFeather;',
 'uniform vec4 uBumps[6];',
 'uniform int uBumpCount;',
 'varying vec2 vUv;',
@@ -12742,7 +12748,7 @@ function maggInit(){
 '  float r = min(uRadius, min(halfSize.x, halfSize.y));',
 '  float d = sdRoundRect(p, halfSize, r);',
 '  if(d > 1.5){discard;}',
-'  float mask = 1.0 - smoothstep(-1.5,0.5,d);',
+'  float mask = 1.0 - smoothstep(-uFeather,0.5,d);',
 '  float zR = uZRadius;',
 '  float e = 2.0;',
 '  float dC = -d;',
@@ -12809,12 +12815,12 @@ function maggInit(){
 '  col = mix(col, vec3(1.0), fres*edge*0.55*uGrade);',
 '  float rim = edge*0.08*mix(0.3,1.0,uGrade);',
 '  col += vec3(rim);',
-'  float borderShape = 1.0-smoothstep(0.0,5.0,abs(d+1.0));',
+'  float borderShape = 1.0-smoothstep(0.0,9.0,abs(d+1.5));',
 '  vec2 edgeDir = normalize(hGrad+vec2(1e-6));',
 '  float borderLight = 0.35 + 0.65*clamp(dot(edgeDir,uLightDir),0.0,1.0);',
 '  float borderShade = 0.3 + 0.7*clamp(-dot(edgeDir,uLightDir),0.0,1.0);',
-'  float border1px = borderShape*0.34*borderLight;',
-'  float borderDark = borderShape*0.12*borderShade;',
+'  float border1px = borderShape*0.20*borderLight;',
+'  float borderDark = borderShape*0.07*borderShade;',
 '  col += vec3(border1px);',
 '  col -= vec3(borderDark);',
 '  col -= vec3(smoothstep(0.35,1.0,edge)*0.05*borderShade);',
@@ -12842,6 +12848,7 @@ function maggInit(){
       uGrade:{value:0},
       uRefrScale:{value:1},
       uLgMode:{value:0},
+      uFeather:{value:1.5},
       uBumps:{value:bumpArr},
       uBumpCount:{value:0}
     };
@@ -12928,6 +12935,7 @@ function maggShader(bw,bh,radPx,cx,cy,tint,bumps,synth,zMul,refrS,lgM){
   g.uniforms.uZRadius.value=Math.min(radPx*0.75,Math.min(bw,bh)*0.48)*2.2*(zMul||1);
   g.uniforms.uRefrScale.value=(refrS||1);
   g.uniforms.uLgMode.value=lgM?1:0;
+  g.uniforms.uFeather.value=1.5;
   var bArr=bumps||[];
   var bCount=Math.min(6,bArr.length);
   for(var bi=0;bi<6;bi++){
@@ -12968,7 +12976,7 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
       var _ok2=false;
       ctx.save();
       ctx.shadowColor="rgba(0,0,0,0.4)";
-      ctx.shadowBlur=14;
+      ctx.shadowBlur=40;
       ctx.shadowOffsetY=3;
       ctx.fillStyle = b.tint===1 ? "rgba(255,241,114,0.28)" : "rgba(0,0,0,0.02)";
       _boxPath();
@@ -12988,11 +12996,11 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
           _tc.drawImage(_out2,0,0);
           var _sx=_tw/b.w,_sy=_th/b.h;
           _tc.globalCompositeOperation="destination-out";
-          _tc.fillStyle="rgba(0,0,0,0.40)";
+          _tc.fillStyle="rgba(0,0,0,0.15)";
           _tc.fillRect(0,0,_tw,_th);
           _tc.globalCompositeOperation="source-over";
           var _ins=Math.min(16,Math.min(b.w,b.h)*0.22);
-          var _blr=Math.min(28,Math.max(10,Math.min(_tw,_th)*0.12));
+          var _blr=Math.min(44,Math.max(16,Math.min(_tw,_th)*0.20));
           _tc.globalCompositeOperation="destination-out";
           _tc.filter="blur("+_blr+"px)";
           _tc.fillStyle="rgba(0,0,0,0.95)";
@@ -13030,24 +13038,22 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
       ctx.restore();
       if(_ok2){
         ctx.save();
-        ctx.strokeStyle="rgba(0,0,0,0.5)";
-        ctx.lineWidth=1.5;
-        _boxPath(0.75);
-        ctx.stroke();
+        _boxPath(0);
+        ctx.clip();
+        try{ctx.filter="blur(3px)";}catch(_e){}
+        ctx.shadowColor="rgba(255,255,255,0.60)";
+        ctx.shadowBlur=14;
         var _gl=ctx.createLinearGradient(0,b.y,0,b.y+b.h);
-        _gl.addColorStop(0,"rgba(255,255,255,0.95)");
-        _gl.addColorStop(0.18,"rgba(255,255,255,0.25)");
-        _gl.addColorStop(0.45,"rgba(255,255,255,0.02)");
-        _gl.addColorStop(0.82,"rgba(255,255,255,0.12)");
+        _gl.addColorStop(0,"rgba(255,255,255,0.90)");
+        _gl.addColorStop(0.18,"rgba(255,255,255,0.26)");
+        _gl.addColorStop(0.45,"rgba(255,255,255,0.04)");
+        _gl.addColorStop(0.82,"rgba(255,255,255,0.14)");
         _gl.addColorStop(1,"rgba(255,255,255,0.55)");
         ctx.strokeStyle=_gl;
-        ctx.lineWidth=4.5;
-        _boxPath(3);
+        ctx.lineWidth=5;
+        _boxPath(3.5);
         ctx.stroke();
-        ctx.strokeStyle="rgba(255,255,255,0.15)";
-        ctx.lineWidth=2;
-        _boxPath(8);
-        ctx.stroke();
+        try{ctx.filter="none";}catch(_e){}
         ctx.restore();
       }
       if(!_ok2){
