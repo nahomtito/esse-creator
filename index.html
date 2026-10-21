@@ -2506,7 +2506,7 @@ button { -webkit-tap-highlight-color: transparent; }
     <div class="preview-tabs" id="previewTabs">
       <button class="preview-tab active" data-page="0" onclick="setPreviewPage(0)">Apertura</button>
     </div>
-    <div class="preview-info">1080 × 1440 px · <span style="color:#fff172">m41</span></div>
+    <div class="preview-info">1080 × 1440 px · <span style="color:#fff172">m42</span></div>
   </div>
 
   <div class="preview-stage">
@@ -13001,36 +13001,28 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
           _tc.globalCompositeOperation="source-over";
           var _ins=Math.min(16,Math.min(b.w,b.h)*0.22);
           var _blr=Math.min(44,Math.max(16,Math.min(_tw,_th)*0.20));
-          /* maschera morbida via doppio ridimensionamento: identica su desktop e mobile
-             (il canvas filter non esiste su iOS, quindi non lo usiamo da nessuna parte) */
+          /* sfumatura analitica: anelli concentrici in destination-out.
+             Solo fill + alpha: identica al pixel su ogni browser e GPU. */
           {
-            var _fS=Math.max(4,Math.min(30,Math.round(_blr*0.7)));
-            var _insE=Math.max(2,_ins-_blr*0.30);
-            var _w1=Math.max(8,Math.round(_tw/_fS)),_h1=Math.max(6,Math.round(_th/_fS));
-            var _mS=document.createElement("canvas");
-            _mS.width=_w1;_mS.height=_h1;
-            var _c1=_mS.getContext("2d");
-            var _kx=_w1/_tw,_ky=_h1/_th;
-            _c1.fillStyle="#000";
-            _c1.beginPath();
-            if(b.shape==="ellipse"){
-              _c1.ellipse(_w1/2,_h1/2,Math.max(1,(b.w/2-_insE)*_sx*_kx),Math.max(1,(b.h/2-_insE)*_sy*_ky),0,0,Math.PI*2);
-            } else {
-              _c1.roundRect(_insE*_sx*_kx,_insE*_sy*_ky,(b.w-_insE*2)*_sx*_kx,(b.h-_insE*2)*_sy*_ky,Math.max(1,(b.r-_insE)*Math.min(_sx,_sy)*Math.min(_kx,_ky)));
-            }
-            _c1.fill();
-            var _w2=Math.max(2,Math.round(_tw/2)),_h2=Math.max(2,Math.round(_th/2));
-            var _mM=document.createElement("canvas");
-            _mM.width=_w2;_mM.height=_h2;
-            var _c2=_mM.getContext("2d");
-            _c2.imageSmoothingEnabled=true;
-            _c2.imageSmoothingQuality="high";
-            _c2.drawImage(_mS,0,0,_w1,_h1,0,0,_w2,_h2);
+            var _insE=Math.max(1,_ins-_blr*0.45);
+            var _ramp=_blr*1.6;
+            var _N=22;
+            var _pp=1-Math.pow(1-0.93,1/_N);
             _tc.globalCompositeOperation="destination-out";
-            _tc.globalAlpha=0.80;
-            _tc.imageSmoothingEnabled=true;
-            _tc.imageSmoothingQuality="high";
-            _tc.drawImage(_mM,0,0,_w2,_h2,0,0,_tw,_th);
+            _tc.fillStyle="#000";
+            for(var _j=0;_j<_N;_j++){
+              var _insJ=_insE+_ramp*_j/_N;
+              var _wJ=(b.w-_insJ*2)*_sx,_hJ=(b.h-_insJ*2)*_sy;
+              if(_wJ<=2||_hJ<=2)break;
+              _tc.globalAlpha=_pp;
+              _tc.beginPath();
+              if(b.shape==="ellipse"){
+                _tc.ellipse(_tw/2,_th/2,Math.max(1,_wJ/2),Math.max(1,_hJ/2),0,0,Math.PI*2);
+              } else {
+                _tc.roundRect(_insJ*_sx,_insJ*_sy,_wJ,_hJ,Math.max(1,(b.r-_insJ)*Math.min(_sx,_sy)));
+              }
+              _tc.fill();
+            }
             _tc.globalAlpha=1;
           }
           _tc.globalCompositeOperation="source-over";
@@ -13061,8 +13053,6 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
         ctx.save();
         _boxPath(0);
         ctx.clip();
-        ctx.shadowColor="rgba(255,255,255,0.60)";
-        ctx.shadowBlur=14;
         var _gl=ctx.createLinearGradient(0,b.y,0,b.y+b.h);
         _gl.addColorStop(0,"rgba(255,255,255,0.90)");
         _gl.addColorStop(0.18,"rgba(255,255,255,0.26)");
@@ -13081,6 +13071,14 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
         ctx.globalAlpha=0.16;
         ctx.lineWidth=10;
         _boxPath(5);
+        ctx.stroke();
+        ctx.globalAlpha=0.09;
+        ctx.lineWidth=14;
+        _boxPath(6.5);
+        ctx.stroke();
+        ctx.globalAlpha=0.05;
+        ctx.lineWidth=19;
+        _boxPath(8);
         ctx.stroke();
         ctx.globalAlpha=1;
         ctx.restore();
