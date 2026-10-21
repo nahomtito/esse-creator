@@ -2506,7 +2506,7 @@ button { -webkit-tap-highlight-color: transparent; }
     <div class="preview-tabs" id="previewTabs">
       <button class="preview-tab active" data-page="0" onclick="setPreviewPage(0)">Apertura</button>
     </div>
-    <div class="preview-info">1080 × 1440 px · <span style="color:#fff172">m39</span></div>
+    <div class="preview-info">1080 × 1440 px · <span style="color:#fff172">m41</span></div>
   </div>
 
   <div class="preview-stage">
@@ -13001,17 +13001,38 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
           _tc.globalCompositeOperation="source-over";
           var _ins=Math.min(16,Math.min(b.w,b.h)*0.22);
           var _blr=Math.min(44,Math.max(16,Math.min(_tw,_th)*0.20));
-          _tc.globalCompositeOperation="destination-out";
-          _tc.filter="blur("+_blr+"px)";
-          _tc.fillStyle="rgba(0,0,0,0.95)";
-          _tc.beginPath();
-          if(b.shape==="ellipse"){
-            _tc.ellipse(_tw/2,_th/2,Math.max(1,(b.w/2-_ins)*_sx),Math.max(1,(b.h/2-_ins)*_sy),0,0,Math.PI*2);
-          } else {
-            _tc.roundRect(_ins*_sx,_ins*_sy,(b.w-_ins*2)*_sx,(b.h-_ins*2)*_sy,Math.max(1,(b.r-_ins)*Math.min(_sx,_sy)));
+          /* maschera morbida via doppio ridimensionamento: identica su desktop e mobile
+             (il canvas filter non esiste su iOS, quindi non lo usiamo da nessuna parte) */
+          {
+            var _fS=Math.max(4,Math.min(30,Math.round(_blr*0.7)));
+            var _insE=Math.max(2,_ins-_blr*0.30);
+            var _w1=Math.max(8,Math.round(_tw/_fS)),_h1=Math.max(6,Math.round(_th/_fS));
+            var _mS=document.createElement("canvas");
+            _mS.width=_w1;_mS.height=_h1;
+            var _c1=_mS.getContext("2d");
+            var _kx=_w1/_tw,_ky=_h1/_th;
+            _c1.fillStyle="#000";
+            _c1.beginPath();
+            if(b.shape==="ellipse"){
+              _c1.ellipse(_w1/2,_h1/2,Math.max(1,(b.w/2-_insE)*_sx*_kx),Math.max(1,(b.h/2-_insE)*_sy*_ky),0,0,Math.PI*2);
+            } else {
+              _c1.roundRect(_insE*_sx*_kx,_insE*_sy*_ky,(b.w-_insE*2)*_sx*_kx,(b.h-_insE*2)*_sy*_ky,Math.max(1,(b.r-_insE)*Math.min(_sx,_sy)*Math.min(_kx,_ky)));
+            }
+            _c1.fill();
+            var _w2=Math.max(2,Math.round(_tw/2)),_h2=Math.max(2,Math.round(_th/2));
+            var _mM=document.createElement("canvas");
+            _mM.width=_w2;_mM.height=_h2;
+            var _c2=_mM.getContext("2d");
+            _c2.imageSmoothingEnabled=true;
+            _c2.imageSmoothingQuality="high";
+            _c2.drawImage(_mS,0,0,_w1,_h1,0,0,_w2,_h2);
+            _tc.globalCompositeOperation="destination-out";
+            _tc.globalAlpha=0.80;
+            _tc.imageSmoothingEnabled=true;
+            _tc.imageSmoothingQuality="high";
+            _tc.drawImage(_mM,0,0,_w2,_h2,0,0,_tw,_th);
+            _tc.globalAlpha=1;
           }
-          _tc.fill();
-          _tc.filter="none";
           _tc.globalCompositeOperation="source-over";
           ctx.drawImage(MAGG_TMP,b.x,b.y,b.w,b.h);
           _ok2=true;
@@ -13040,7 +13061,6 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
         ctx.save();
         _boxPath(0);
         ctx.clip();
-        try{ctx.filter="blur(3px)";}catch(_e){}
         ctx.shadowColor="rgba(255,255,255,0.60)";
         ctx.shadowBlur=14;
         var _gl=ctx.createLinearGradient(0,b.y,0,b.y+b.h);
@@ -13050,10 +13070,19 @@ function maggDrawBoxes(ctx,canvas,boxes,opts){
         _gl.addColorStop(0.82,"rgba(255,255,255,0.14)");
         _gl.addColorStop(1,"rgba(255,255,255,0.55)");
         ctx.strokeStyle=_gl;
-        ctx.lineWidth=5;
+        ctx.globalAlpha=0.50;
+        ctx.lineWidth=4;
         _boxPath(3.5);
         ctx.stroke();
-        try{ctx.filter="none";}catch(_e){}
+        ctx.globalAlpha=0.28;
+        ctx.lineWidth=7;
+        _boxPath(4);
+        ctx.stroke();
+        ctx.globalAlpha=0.16;
+        ctx.lineWidth=10;
+        _boxPath(5);
+        ctx.stroke();
+        ctx.globalAlpha=1;
         ctx.restore();
       }
       if(!_ok2){
